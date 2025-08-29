@@ -1,14 +1,12 @@
-# 文件路径: apps/configuration/admin.py
+# -----------------------------------------------------------------------------
+# [WORKFLOW ADMIN REGISTRY]
+# -----------------------------------------------------------------------------
+# This file acts as a central registry for all admin interfaces related to
+# the workflow app. It ensures that Django's admin autodiscover mechanism
+# finds and registers all separated admin classes.
+#
+# To add a new admin module, simply import it here.
+# -----------------------------------------------------------------------------
 
-from django.contrib import admin
-from unfold.admin import ModelAdmin
-from .jobs.transcodingJob import TranscodingJob
-
-@admin.register(TranscodingJob)
-
-class JobsAdmin(ModelAdmin): # <-- 核心修正：多重继承
-    fieldsets = (
-        ("工作流任务管理 (Workflow)", {
-            'fields': ('id',)
-        }),
-    )
+from .admin_configs.annotationAdmin import *
+from .admin_configs.transcodingAdmin import *

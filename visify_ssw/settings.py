@@ -24,7 +24,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'apps.media_assets.apps.MediaAssetsConfig',
     'apps.configuration.apps.ConfigurationConfig',
-    'apps.jobs.apps.JobsConfig',
+    'apps.workflow.apps.WorkflowConfig',
     'corsheaders',
     'solo',
     'crispy_forms',
@@ -100,7 +100,11 @@ CELERY_RESULT_BACKEND = config("CELERY_BROKER_URL", default="redis://redis:6-379
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_IMPORTS = ('apps.media_assets.tasks',)
+CELERY_IMPORTS = (
+    'apps.media_assets.tasks',
+    'apps.workflow.tasks.transcoding_tasks',
+    'apps.workflow.tasks.annotation_tasks'
+)
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
 AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
@@ -130,10 +134,26 @@ UNFOLD = {
     "SIDEBAR": {
         "navigation": [
             {'title': '工作台', 'items': [{'title': '仪表盘', 'icon': 'space_dashboard', 'link': reverse_lazy('admin:index')}]},
-            {'title': '媒资管理', 'separator': True, 'items': [{'title': '媒资 (作品)', 'link': reverse_lazy('admin:media_assets_media_changelist'), 'icon': 'movie'}, {'title': '资产条目 (剧集)', 'link': reverse_lazy('admin:media_assets_asset_changelist'), 'icon': 'video_library'}]},
-            {'title': '工作流任务', 'separator': True, 'items': [{'title': '转码任务', 'link': reverse_lazy('admin:jobs_transcodingjob_changelist'), 'icon': 'movie'}]},
+            {'title': '媒资管理', 'separator': True, 'items': [{'title': '内容资产', 'link': reverse_lazy('admin:media_assets_asset_changelist'), 'icon': 'video_library'},{'title': '媒体文件', 'link': reverse_lazy('admin:media_assets_media_changelist'), 'icon': 'movie'}]},
+            {
+                'title': '工作流管理',
+                'separator': True,
+                'items': [
+                    {
+                        'title': '标注项目',
+                        'icon': 'rate_review',  # 一个更合适的图标
+                        # 链接到 AnnotationProject 的列表页
+                        'link': reverse_lazy('admin:workflow_annotationproject_changelist')
+                    },
+                    {
+                        'title': '转码项目',
+                        'icon': 'transform',  # 一个更合适的图标
+                        # 链接到 TranscodingProject 的列表页
+                        'link': reverse_lazy('admin:workflow_transcodingproject_changelist')
+                    },
+                ]
+            },
             {'title': '系统设置', 'separator': True, 'items': [{'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'), 'icon': 'hub'}, {'title': '用户', 'link': reverse_lazy('admin:auth_user_changelist'), 'icon': 'group'}, {'title': '用户组', 'link': reverse_lazy('admin:auth_group_changelist'), 'icon': 'groups'}]},
-            {'title': '外部工具', 'separator': True, 'items': [{'title': 'Label Studio', 'link': config("LABEL_STUDIO_PUBLIC_URL", default="http://localhost:8081"), 'icon': 'launch', 'target': '_blank'}]}
         ],
     },
 }

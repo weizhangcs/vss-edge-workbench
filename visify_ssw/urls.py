@@ -6,9 +6,12 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from apps.workflow.views import annotation_views
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('integrations/ls/', include('apps.media_assets.urls', namespace='media_assets')),
+    #path('integrations/ls/', include('apps.media_assets.urls', namespace='media_assets')),
+    path('workflow/', include('apps.workflow.urls', namespace='workflow')),
 ]
 
 # --- [关键修复] 为开发环境提供静态和媒体文件服务 ---

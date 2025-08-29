@@ -1,0 +1,63 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block field_sets %}
+<div class="p-8 pt-0">
+  {% for fieldset in adminform %}
+    {% include "admin/includes/fieldset.html" %}
+
+    {% if forloop.first %}
+      </fieldset>
+    </div>
+
+    <div class="p-8">
+      <fieldset class="module aligned">
+        <h2 class="text-xl font-semibold mb-4">资产列表 (Asset-level Operations)</h2>
+        <div class="overflow-x-auto">
+          <table id="asset-list-table" class="min-w-full bg-white border border-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="py-2 px-4 border-b">序号</th>
+                <th class="py-2 px-4 border-b">资产标题</th>
+                <th class="py-2 px-4 border-b">L1 状态</th>
+                <th class="py-2 px-4 border-b">L2/L3 状态</th>
+                <th class="py-2 px-4 border-b text-center" colspan="2">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if media_items_with_status %}
+                {% for item in media_items_with_status %}
+                  <tr class="hover:bg-gray-100">
+                    <td class="py-2 px-4 border-b">{{ item.media.sequence_number }}</td>
+                    <td class="py-2 px-4 border-b">{{ item.media.title }}</td>
+                    <td class="py-2 px-4 border-b">{% if item.l1_job %}{{ item.l1_job.get_status_display }}{% else %}未创建{% endif %}</td>
+                    <td class="py-2 px-4 border-b">{% if item.l2l3_job %}{{ item.l2l3_job.get_status_display }}{% else %}未创建{% endif %}</td>
+                    <td class="py-2 px-4 border-b">
+                        {% if item.l1_job %}
+                           {% if item.l1_job.l1_output_file %}
+                               <a href="{% url 'workflow:annotation_job_revise_l1' item.l1_job.id %}" class="button" target="_blank">🔁 修订</a>
+                           {% else %}
+                               <a href="{% url 'workflow:annotation_job_start_l1' item.l1_job.id %}" class="button" target="_blank">▶️ 开始</a>
+                           {% endif %}
+                       {% endif %}
+                    </td>
+                    <td class="py-2 px-4 border-b">
+                        </td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="6" class="py-4 px-4 text-center text-gray-500">此项目关联的资产下没有找到任何媒体文件。</td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="p-8 pt-0">
+    {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}
