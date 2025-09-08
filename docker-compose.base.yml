@@ -1,0 +1,99 @@
+# docker-compose.base.yml
+# This file defines the common, stable configurations for all services, shared across all environments.
+
+services:
+  db:
+    image: postgres:16
+    container_name: vss-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    env_file:
+      - .env
+
+  redis:
+    image: redis:7-alpine
+    container_name: vss-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    expose:
+      - "6379"
+
+  web:
+    container_name: vss-web
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./media_root:/app/media_root
+      - staticfiles_volume:/app/staticfiles
+
+  celery_worker:
+    container_name: vss-celery-worker
+    command: celery -A visify_ssw worker -l info
+    env_file:
+      - .env
+    depends_on:
+      - web
+    volumes:
+      - ./media_root:/app/media_root
+
+  nginx_media_server:
+    image: nginx:1.25-alpine
+    container_name: vss-nginx-media
+    ports:
+      - "9999:80"
+    volumes:
+      - ./configs/nginx/vss-media-server.conf:/etc/nginx/conf.d/default.conf:ro
+      - staticfiles_volume:/var/www/staticfiles:ro
+      - ./media_root:/var/www/media_root:ro
+
+  subeditor:
+    container_name: vss-subeditor
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: vss-label-studio
+    ports:
+      - "8081:8080"
+    volumes:
+      - label_studio_data:/label-studio/data
+      - ./configs/nginx/nginx-ls.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      - LABEL_STUDIO_ALLOW_LEGACY_TOKEN_AUTH=true
+      - LABEL_STUDIO_HOST=${LABEL_STUDIO_PUBLIC_URL}
+      - NGINX_PROXY_PASS_AUTHORIZATION=true
+      - LABEL_STUDIO_SIGNUP_WITHOUT_INVITE=true
+      - DJANGO_SESSION_ENGINE=django.contrib.sessions.backends.cache
+      - LABEL_STUDIO_CACHE_BACKEND=django_redis.cache.RedisCache
+      - REDIS_LOCATION=redis://redis:6379/1
+      - DJANGO_SESSION_COOKIE_SAMESITE=Lax
+      - DJANGO_CSRF_COOKIE_SAMESITE=Lax
+      - DJANGO_SESSION_COOKIE_SECURE=False
+      - DJANGO_CSRF_COOKIE_SECURE=False
+      - CSRF_TRUSTED_ORIGINS=${LABEL_STUDIO_PUBLIC_URL}
+
+volumes:
+  postgres_data:
+  label_studio_data:
+  staticfiles_volume:

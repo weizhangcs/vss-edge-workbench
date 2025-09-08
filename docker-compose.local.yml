@@ -1,0 +1,31 @@
+# docker-compose.local.yml
+# This file is for the local development environment. It overrides the base configuration to build from local source.
+
+services:
+  web:
+    image: ghcr.io/weizhangcs/vss-workbench:v2.0.4
+    build:
+      context: .
+      args:
+        # Pass the Chinese mirror URL to the Dockerfile's APT_MIRROR argument
+        - APT_MIRROR=mirrors.aliyun.com
+    volumes:
+      # Mount the local source code to enable hot-reloading
+      - .:/app
+
+  celery_worker:
+    image: ghcr.io/weizhangcs/vss-workbench:v2.0.4
+    build:
+      context: .
+      args:
+        - APT_MIRROR=mirrors.aliyun.com
+        - PIP_MIRROR_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+    volumes:
+      - .:/app
+
+  subeditor:
+     image: ghcr.io/weizhangcs/vss-subeditor:v1.0.4
+     build:
+       context: D:\DevProjects\WebstormProjects\vss-sub-editor
+       args:
+         - YARN_MIRROR=https://registry.npmmirror.com

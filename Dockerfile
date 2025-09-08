@@ -1,26 +1,37 @@
 # Dockerfile
 
-# 1. 使用官方的 Python 3.12 镜像作为基础
+# 1. Use the official Python 3.12 image as a base
 FROM python:3.12-slim
 
-# 2. 设置环境变量
-ENV PYTHONDONTWRITEBYTECODE 1  # 防止 python 生成 .pyc 文件
-ENV PYTHONUNBUFFERED 1         # 确保 Python 输出能直接在 Docker 日志中看到
+# 2. Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1  # Prevents python from creating .pyc files
+ENV PYTHONUNBUFFERED 1         # Ensures Python output is directly visible in Docker logs
 
-# 3. 更换为国内APT源并安装依赖
-#    使用阿里云的Debian镜像源，速度飞快
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
+# 3. Conditionally switch to a domestic APT source and install dependencies
+#    Declare a build argument named APT_MIRROR with an empty default value
+ARG APT_MIRROR
+
+#    Only execute the sed command to replace the source if the APT_MIRROR argument is provided
+RUN if [ -n "$APT_MIRROR" ]; then \
+        echo "Using APT mirror: $APT_MIRROR" && \
+        sed -i "s|deb.debian.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. 设置工作目录
+# 4. Set the working directory
 WORKDIR /app
 
-# 5. 复制并使用国内PIP源安装 Python 依赖
+# 5. Copy and install Python dependencies using a configurable PIP source
 COPY requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-# 6. 最后才复制项目源代码
-#    这是变动最频繁的部分，放在最后，可以最大化利用前面所有层的缓存
+# Declare a build argument for the pip index URL
+ARG PIP_MIRROR_URL
+
+# Use the mirror if the argument is provided, otherwise use the default pip index
+RUN pip install --no-cache-dir ${PIP_MIRROR_URL:+-i "$PIP_MIRROR_URL"} -r requirements.txt
+
+# 6. Copy the project source code last
+#    This is the most frequently changed part, placing it last maximizes the use of all previous layer caches
 COPY . .
