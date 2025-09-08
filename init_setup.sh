@@ -5,7 +5,7 @@ set -e
 # --- Configuration ---
 ENV_TEMPLATE_FILE=".env.template"
 ENV_FILE=".env"
-REQUIRED_DIRS=("media_root")
+REQUIRED_DIRS=("media_root" "staticfiles") # Added staticfiles for clarity
 
 # --- Helper Functions ---
 generate_secret() {
@@ -40,13 +40,22 @@ sed -i.bak "s|DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|" "$EN
 sed -i.bak "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" "$ENV_FILE"
 
 echo "Please provide initial settings for the instance:"
+
+# --- NEW: Prompt for the Public Endpoint ---
+read -p "Enter the Public Endpoint URL (e.g., http://your_server_ip or https://your_domain): " PUBLIC_ENDPOINT
+sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE"
+
+# --- Other prompts ---
 read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL
-read -s -p "Enter the initial Django superuser password: " DJANGO_SUPERUSER_PASSWORD
+read -s -p "Enter the initial Django superuser password: " DJANgo_SUPERUSER_PASSWORD
 echo
 read -p "Enter the Label Studio Access Token (from the LS UI): " LABEL_STUDIO_ACCESS_TOKEN
-DEFAULT_ALLOWED_HOSTS="localhost,127.0.0.1"
+
+# --- Improved: Suggest default based on Public Endpoint ---
+# Extract hostname from the public endpoint for ALLOWED_HOSTS suggestion
+HOSTNAME=$(echo "$PUBLIC_ENDPOINT" | sed -e 's|http://||' -e 's|https://||' -e 's|:[0-9]*$||')
+DEFAULT_ALLOWED_HOSTS="localhost,127.0.0.1,${HOSTNAME}"
 read -p "Enter comma-separated Allowed Hosts [${DEFAULT_ALLOWED_HOSTS}]: " DJANGO_ALLOWED_HOSTS
-# Correct way to handle default value after the read command
 DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS:-$DEFAULT_ALLOWED_HOSTS}
 
 # Use sed to replace placeholders, wrapping values in quotes for safety
@@ -68,6 +77,7 @@ echo "✅ Initialization complete!"
 echo "The '$ENV_FILE' has been created successfully."
 echo
 echo "Next steps:"
-echo "1. Run 'docker-compose up -d' to start all services."
-echo "2. Run 'docker-compose exec web python manage.py migrate'"
-echo "3. Run 'docker-compose exec web python manage.py setup_instance'"
+echo "1. Review the generated '$ENV_FILE' to ensure all settings are correct."
+echo "2. Run 'docker-compose up -d' to start all services."
+echo "3. Run 'docker-compose exec web python manage.py migrate'"
+echo "4. Run 'docker-compose exec web python manage.py setup_instance'"

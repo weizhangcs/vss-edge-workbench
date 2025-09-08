@@ -81,44 +81,24 @@ class LabelStudioService:
             logger.error(f"创建 LS 项目时发生未知错误: {e}", exc_info=True)
             return False, f"创建 LS 项目时发生未知错误: {e}", None, {}
 
-    def create_project_and_import_tasks(self, media: Media, request: HttpRequest) -> Tuple[bool, str, Optional[int]]:
+    def export_project_annotations(self, ls_project_id: int) -> Tuple[bool, str, Optional[bytes]]:
         """
-        (V2 重构版 & V4.5 同步修正)
-        在 Label Studio 中创建项目并导入任务。
-        成功时返回 (True, message, project_id)，失败时返回 (False, message, None)。
+        从 Label Studio 导出指定项目的所有标注数据。
+        成功时返回 (True, "Success", file_content_bytes)，失败时返回 (False, error_message, None)。
         """
         try:
-            label_config_xml = render_to_string('ls_templates/video.xml')
-            return_to_django_url = request.build_absolute_uri(
-                reverse('admin:media_assets_media_change', args=[media.id]))
+            logger.info(f"开始从 LS 导出 Project {ls_project_id} 的全部数据...")
+            export_url = f"{self.internal_ls_url}/api/projects/{ls_project_id}/export"
 
-            expert_instruction_html = f"<h4>操作指南</h4><p>请根据视频内容完成标注。</p><p>完成后请返回Django后台：<a href='{return_to_django_url}'>点击这里</a></p>"
+            # 使用 stream=True 适合处理可能的大文件
+            response = requests.get(export_url, headers=self.headers, stream=True, timeout=300)  # 增加超时
+            response.raise_for_status()
 
-            project_payload = {"title": f"{media.title} - 标注项目", "expert_instruction": expert_instruction_html,
-                               "label_config": label_config_xml}
-            project_response = requests.post(f"{self.internal_ls_url}/api/projects", json=project_payload,
-                                             headers=self.headers)
-            project_response.raise_for_status()
-            project_data = project_response.json()
-            project_id = project_data.get("id")
+            return True, "Export successful", response.content
 
-            if not project_id:
-                return False, "API 调用成功，但未返回项目ID。", None
-
-            # 【V4.5 同步修正】使用 source_video 构建 URL
-            # 注意：此方法与media直接关联，因此只处理该media对象
-            if media.source_video:
-                video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media.source_video.url}"
-                task_payload = {"data": {"video_url": video_url}}
-                task_response = requests.post(f"{self.internal_ls_url}/api/projects/{project_id}/tasks",
-                                              json=task_payload, headers=self.headers)
-
-                if task_response.status_code != 201:
-                    logger.error(f"为 Media '{media.title}' 创建 Task 失败: {task_response.text}")
-
-            message = f"成功在 Label Studio 中创建项目 (ID: {project_id})！"
-            return True, message, project_id
-
+        except requests.exceptions.RequestException as e:
+            logger.error(f"导出 LS 数据时发生API请求错误: {e}", exc_info=True)
+            return False, f"API request failed: {e}", None
         except Exception as e:
-            logger.error(f"创建 LS 项目时发生未知错误: {e}", exc_info=True)
-            return False, f"创建 LS 项目时发生未知错误: {e}", None
+            logger.error(f"导出 LS 数据时发生未知错误: {e}", exc_info=True)
+            return False, f"Unknown error during export: {e}", None

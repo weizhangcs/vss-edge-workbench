@@ -2,62 +2,125 @@
 {% load i18n admin_urls unfold %}
 
 {% block field_sets %}
-<div class="p-8 pt-0">
+{# --- 上半部分：左右分区 --- #}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8">
   {% for fieldset in adminform %}
-    {% include "admin/includes/fieldset.html" %}
-
     {% if forloop.first %}
-      </fieldset>
-    </div>
-
-    <div class="p-8">
-      <fieldset class="module aligned">
-        <h2 class="text-xl font-semibold mb-4">资产列表 (Asset-level Operations)</h2>
-        <div class="overflow-x-auto">
-          <table id="asset-list-table" class="min-w-full bg-white border border-gray-200">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="py-2 px-4 border-b">序号</th>
-                <th class="py-2 px-4 border-b">资产标题</th>
-                <th class="py-2 px-4 border-b">L1 状态</th>
-                <th class="py-2 px-4 border-b">L2/L3 状态</th>
-                <th class="py-2 px-4 border-b text-center" colspan="2">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% if media_items_with_status %}
-                {% for item in media_items_with_status %}
-                  <tr class="hover:bg-gray-100">
-                    <td class="py-2 px-4 border-b">{{ item.media.sequence_number }}</td>
-                    <td class="py-2 px-4 border-b">{{ item.media.title }}</td>
-                    <td class="py-2 px-4 border-b">{% if item.l1_job %}{{ item.l1_job.get_status_display }}{% else %}未创建{% endif %}</td>
-                    <td class="py-2 px-4 border-b">{% if item.l2l3_job %}{{ item.l2l3_job.get_status_display }}{% else %}未创建{% endif %}</td>
-                    <td class="py-2 px-4 border-b">
-                        {% if item.l1_job %}
-                           {% if item.l1_job.l1_output_file %}
-                               <a href="{% url 'workflow:annotation_job_revise_l1' item.l1_job.id %}" class="button" target="_blank">🔁 修订</a>
-                           {% else %}
-                               <a href="{% url 'workflow:annotation_job_start_l1' item.l1_job.id %}" class="button" target="_blank">▶️ 开始</a>
-                           {% endif %}
-                       {% endif %}
-                    </td>
-                    <td class="py-2 px-4 border-b">
-                        </td>
-                  </tr>
-                {% endfor %}
-              {% else %}
-                <tr>
-                  <td colspan="6" class="py-4 px-4 text-center text-gray-500">此项目关联的资产下没有找到任何媒体文件。</td>
-                </tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-      </fieldset>
-    </div>
-
-    <div class="p-8 pt-0">
+      {# --- 左侧：项目信息 --- #}
+      <div class="col-span-1 border-r pr-8">
+        {% include "admin/includes/fieldset.html" %}
+      </div>
+    {% elif forloop.last %}
+      {# --- 右侧：项目级产出物 (现在由Form动态渲染按钮) --- #}
+      <div class="col-span-1 lg:mt-0">
+        {% include "admin/includes/fieldset.html" %}
+      </div>
     {% endif %}
   {% endfor %}
+</div>
+
+{# --- 下半部分：资产列表 --- #}
+<div class="p-8 pt-0">
+  <fieldset class="module aligned">
+    <h2 class="text-xl font-semibold mb-4">资产列表 (Asset-level Operations)</h2>
+
+    <div class="mb-4 p-4 bg-gray-50 rounded-md border">
+        <div class="flex items-center space-x-4">
+            <strong class="text-sm font-medium">按L1状态过滤:</strong>
+            <a href="?" class="text-sm px-2 py-1 rounded-md {% if not active_filters.l1_status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">全部</a>
+            {% for status, display in status_choices %}
+                <a href="?l1_status={{ status }}" class="text-sm px-2 py-1 rounded-md {% if active_filters.l1_status == status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">{{ display }}</a>
+            {% endfor %}
+        </div>
+        <div class="flex items-center space-x-4 mt-2">
+            <strong class="text-sm font-medium">按L2状态过滤:</strong>
+            <a href="?" class="text-sm px-2 py-1 rounded-md {% if not active_filters.l2l3_status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">全部</a>
+            {% for status, display in status_choices %}
+                <a href="?l2l3_status={{ status }}" class="text-sm px-2 py-1 rounded-md {% if active_filters.l2l3_status == status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">{{ display }}</a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table id="asset-list-table" class="min-w-full bg-white border border-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="py-2 px-4 border-b border-r" rowspan="2">序号</th>
+            <th class="py-2 px-4 border-b border-r" rowspan="2">资产标题</th>
+            <th class="py-2 px-4 border-b border-r text-center" colspan="3">字幕标注 (L1)</th>
+            <th class="py-2 px-4 border-b border-r text-center" colspan="3">语义标注 (L2/L3)</th>
+            <th class="py-2 px-4 border-b" rowspan="2">操作</th>
+          </tr>
+          <tr>
+            <th class="py-2 px-4 border-b border-r font-medium">状态</th>
+            <th class="py-2 px-4 border-b border-r font-medium">创建时间</th>
+            <th class="py-2 px-4 border-b border-r font-medium">更新时间</th>
+            <th class="py-2 px-4 border-b border-r font-medium">状态</th>
+            <th class="py-2 px-4 border-b border-r font-medium">创建时间</th>
+            <th class="py-2 px-4 border-b border-r font-medium">更新时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if media_items_with_status %}
+            {% for item in media_items_with_status %}
+              <tr class="hover:bg-gray-100">
+                <td class="py-2 px-4 border-b border-r">{{ item.media.sequence_number }}</td>
+                <td class="py-2 px-4 border-b border-r">{{ item.media.title }}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l1_job %}{{ item.l1_job.get_status_display }}{% else %}未创建{% endif %}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l1_job %}{{ item.l1_job.created|date:"Y-m-d H:i" }}{% else %}--{% endif %}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l1_job %}{{ item.l1_job.modified|date:"Y-m-d H:i" }}{% else %}--{% endif %}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l2l3_job %}{{ item.l2l3_job.get_status_display }}{% else %}未创建{% endif %}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l2l3_job %}{{ item.l2l3_job.created|date:"Y-m-d H:i" }}{% else %}--{% endif %}</td>
+                <td class="py-2 px-4 border-b border-r">{% if item.l2l3_job %}{{ item.l2l3_job.modified|date:"Y-m-d H:i" }}{% else %}--{% endif %}</td>
+                <td class="py-2 px-4 border-b" colspan="2">
+                  <div class="flex items-center space-x-2">
+                    {% if item.l1_job %}
+                       {% if item.l1_job.l1_output_file %}
+                           <a href="{% url 'workflow:annotation_job_revise_l1' item.l1_job.id %}" class="button" target="_blank">🔁 修订字幕标注</a>
+                       {% else %}
+                           <a href="{% url 'workflow:annotation_job_start_l1' item.l1_job.id %}" class="button" target="_blank">▶️ 开始字幕标注</a>
+                       {% endif %}
+                    {% endif %}
+                    {% if item.l2l3_job %}
+                       <a href="{% url 'workflow:annotation_job_start_l2l3' item.l2l3_job.id %}" class="button" target="_blank">▶️ 进入语义标注</a>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="9" class="py-4 px-4 text-center text-gray-500">此项目关联的资产下没有找到任何媒体文件。</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="pagination flex items-center justify-between mt-4 p-4 border-t">
+        <span class="text-sm text-gray-700">
+          第 {{ page_obj.number }} 页 / 共 {{ page_obj.paginator.num_pages }} 页 (共 {{ page_obj.paginator.count }} 条)
+        </span>
+        <div class="flex items-center space-x-1">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if active_filters.l1_status %}&l1_status={{ active_filters.l1_status }}{% endif %}{% if active_filters.l2l3_status %}&l2l3_status={{ active_filters.l2l3_status }}{% endif %}" class="px-3 py-1 text-sm bg-gray-200 rounded-md hover:bg-gray-300">上一页</a>
+          {% endif %}
+
+          {% for num in page_obj.paginator.page_range %}
+            {% if page_obj.number == num %}
+              <span class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md">{{ num }}</span>
+            {% else %}
+              <a href="?page={{ num }}{% if active_filters.l1_status %}&l1_status={{ active_filters.l1_status }}{% endif %}{% if active_filters.l2l3_status %}&l2l3_status={{ active_filters.l2l3_status }}{% endif %}" class="px-3 py-1 text-sm bg-gray-200 rounded-md hover:bg-gray-300">{{ num }}</a>
+            {% endif %}
+          {% endfor %}
+
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if active_filters.l1_status %}&l1_status={{ active_filters.l1_status }}{% endif %}{% if active_filters.l2l3_status %}&l2l3_status={{ active_filters.l2l3_status }}{% endif %}" class="px-3 py-1 text-sm bg-gray-200 rounded-md hover:bg-gray-300">下一页</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </fieldset>
 </div>
 {% endblock %}

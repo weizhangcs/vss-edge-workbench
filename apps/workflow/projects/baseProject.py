@@ -22,6 +22,19 @@ class BaseProject(TimeStampedModel):
     name = models.CharField(max_length=255, verbose_name="项目名称")
     description = models.TextField(blank=True, null=True, verbose_name="项目描述")
 
+    STATUS_CHOICES = (
+        ('PENDING', '待处理'),
+        ('PROCESSING', '处理中'),
+        ('COMPLETED', '已完成'),
+        ('FAILED', '失败'),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING',
+        verbose_name="项目状态"
+    )
+
     def __str__(self):
         return self.name
 

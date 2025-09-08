@@ -21,4 +21,19 @@ urlpatterns = [
         annotation_views.revise_l1_annotation_view,
         name='annotation_job_revise_l1'
     ),
+    path(
+        'annotation/job/<int:job_id>/start-l2l3/',
+        annotation_views.start_l2l3_annotation_view,
+        name='annotation_job_start_l2l3'
+    ),
+    path(
+        'annotation/project/<uuid:project_id>/export-l2-output/',
+        annotation_views.export_l2_output_view,
+        name='annotation_project_export_l2'
+    ),
+    path(
+        'annotation/project/<uuid:project_id>/generate-blueprint/',
+        annotation_views.generate_blueprint_view,
+        name='annotation_project_generate_blueprint'
+    ),
 ]

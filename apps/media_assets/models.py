@@ -25,8 +25,7 @@ class Asset(TimeStampedModel):
     LANGUAGE_CHOICES = (('zh-CN', '中文 (简体)'), ('en-US', '英语 (美国)'))
     UPLOAD_STATUS_CHOICES = (('pending', '等待文件上传'), ('uploading', '上传中'), ('completed', '上传完成'),
                              ('failed', '上传失败'))
-    #PROCESSING_STATUS_CHOICES = (('pending', '等待处理'), ('processing', '处理中'), ('completed', '全部处理完成'),
-    #                             ('failed', '部分或全部失败'))
+
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255, verbose_name="资产标题 (Title)")
@@ -38,8 +37,6 @@ class Asset(TimeStampedModel):
                                         verbose_name="版权状态")
     upload_status = models.CharField(max_length=20, choices=UPLOAD_STATUS_CHOICES, default='pending',
                                      verbose_name="文件上传状态")
-    #processing_status = models.CharField(max_length=20, choices=PROCESSING_STATUS_CHOICES, default='pending',
-    #                                     verbose_name="文件处理状态")
 
     def __str__(self):
         return self.title

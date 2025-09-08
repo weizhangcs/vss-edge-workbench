@@ -114,7 +114,8 @@ AWS_S3_CUSTOM_DOMAIN = config('AWS_S3_CUSTOM_DOMAIN', default='')
 AWS_S3_PROCESSED_VIDEOS_PREFIX = config('AWS_S3_PROCESSED_VIDEOS_PREFIX', default='processed_videos/')
 AWS_S3_SOURCE_SUBTITLES_PREFIX = config('AWS_S3_SOURCE_SUBTITLES_PREFIX', default='source_subtitles/')
 
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:3001"]
+CORS_ALLOWED_ORIGINS_str = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_str.split(',') if origin.strip()]
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = ["accept", "authorization", "content-type", "user-agent", "x-csrftoken", "x-requested-with"]
 

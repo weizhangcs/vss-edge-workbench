@@ -11,11 +11,14 @@ from .baseJob import BaseJob
 from apps.media_assets.models import Media
 
 # 定义一个临时的存储位置，如果需要更复杂的权限控制可以替换
-fs = FileSystemStorage(location='/app/media_root/annotation')
+fs = FileSystemStorage(location='/app/media_root')
 
 def get_l1_output_upload_path(instance, filename):
-  """为L1产出物生成动态路径"""
-  return f'{instance.project.id}/{instance.id}_{filename}'
+  """
+  为L1产出物生成动态路径，并包含'annotation/l1_exports'前缀。
+  """
+  return f'annotation/{instance.project.id}/l1_exports/{instance.id}_{filename}'
+
 
 
 class AnnotationJob(BaseJob):

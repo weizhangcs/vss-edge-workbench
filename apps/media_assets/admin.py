@@ -20,8 +20,6 @@ class AssetAdmin(ModelAdmin):
         'title', 'asset_type', 'language', 'copyright_status',
         'upload_status',  'created', 'modified',
         'batch_upload_action',
-        #'processing_status',
-        # 'manage_projects_action', # 您已注释掉，保持不变
     )
     list_filter = ('asset_type', 'language', 'copyright_status', 'upload_status' ) #'processing_status'
     search_fields = ('title',)

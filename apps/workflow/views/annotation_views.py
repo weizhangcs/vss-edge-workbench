@@ -10,6 +10,8 @@ from django.core.files.base import ContentFile
 import logging
 
 from ..models import AnnotationJob
+from ..projects.annotationProject import AnnotationProject
+from ..tasks.annotation_tasks import generate_narrative_blueprint_task
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,6 @@ def start_l1_annotation_view(request, job_id):
 
     return redirect(subeditor_url)
 
-
 @csrf_exempt
 def save_l1_output_view(request, job_id):
     """
@@ -72,7 +73,6 @@ def save_l1_output_view(request, job_id):
         logger.error(f"保存L1产出物时出错 (Job ID: {job.id}): {e}", exc_info=True)
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
-
 def revise_l1_annotation_view(request, job_id):
     """
     处理“修订L1字幕”按钮点击的视图。
@@ -101,3 +101,55 @@ def revise_l1_annotation_view(request, job_id):
     subeditor_url = f"{settings.SUBEDITOR_PUBLIC_URL}?videoUrl={video_url}&srtUrl={srt_url}&jobId={job_id_param}&returnUrl={return_url_param}"
 
     return redirect(subeditor_url)
+
+def start_l2l3_annotation_view(request, job_id):
+    """
+    处理“开始L2/L3语义标注”按钮点击的视图。
+    1. 将任务状态变更为“处理中”。
+    2. 重定向到 Label Studio 的具体任务页面。
+    """
+    job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L2L3_SEMANTIC)
+
+    if job.status == 'PENDING':
+        job.start()
+        job.save()
+        messages.success(request, f"语义标注任务 '{job.media.title}' 状态已更新为“处理中”。")
+
+    if not job.project.label_studio_project_id or not job.label_studio_task_id:
+        messages.error(request, "错误：项目或任务未成功在 Label Studio 中创建，无法跳转。")
+        return redirect(reverse('admin:workflow_annotationproject_change', args=[job.project.id]))
+
+    ls_project_id = job.project.label_studio_project_id
+    ls_task_id = job.label_studio_task_id
+    label_studio_task_url = f"{settings.LABEL_STUDIO_PUBLIC_URL}/projects/{ls_project_id}/data/?task={ls_task_id}"
+
+    return redirect(label_studio_task_url)
+
+def export_l2_output_view(request, project_id):
+    """
+    触发一个后台任务，从 Label Studio 导出 L2 产出物。
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    # 引入我们将在下一步创建的 Celery Task
+    from ..tasks.annotation_tasks import export_l2_output_task
+
+    export_l2_output_task.delay(project_id=str(project.id))
+
+    messages.success(request, f"已启动为项目《{project.name}》导出L2产出物的后台任务。请稍后刷新查看结果。")
+
+    return redirect(reverse('admin:workflow_annotationproject_change', args=[project.id]))
+
+def generate_blueprint_view(request, project_id):
+    """
+    触发一个后台任务，为项目生成最终的叙事蓝图。
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    if not project.label_studio_export_file:
+        messages.error(request, "错误：缺少L2产出物，无法生成蓝图。请先导出L2产出物。")
+    else:
+        generate_narrative_blueprint_task.delay(project_id=str(project.id))
+        messages.success(request, f"已启动为项目《{project.name}》生成叙事蓝图的后台任务。")
+
+    return redirect(reverse('admin:workflow_annotationproject_change', args=[project.id]))
