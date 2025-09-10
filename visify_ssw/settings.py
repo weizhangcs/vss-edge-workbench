@@ -48,6 +48,30 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'visify_ssw.urls'
 
+# --- LOGGING CONFIGURATION ---
+# This configuration makes INFO level logs visible in the console
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO', # Set the handler to process INFO level messages
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': { # Configure the root logger
+        'handlers': ['console'],
+        'level': 'INFO', # Set the logger to capture INFO level messages
+    },
+}
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -89,7 +113,8 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+
+#STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media_root'
@@ -125,6 +150,8 @@ LOCAL_MEDIA_URL_BASE = config('LOCAL_MEDIA_URL_BASE', default='http://localhost:
 LABEL_STUDIO_PUBLIC_URL = config("LABEL_STUDIO_PUBLIC_URL", default="http://localhost:8081")
 SUBEDITOR_PUBLIC_URL = config("SUBEDITOR_PUBLIC_URL", default="http://localhost:3000")
 LABEL_STUDIO_ACCESS_TOKEN = config('LABEL_STUDIO_ACCESS_TOKEN', default='')
+
+STATIC_URL = f'{LOCAL_MEDIA_URL_BASE}/static/'
 
 STORAGE_BACKEND = config('STORAGE_BACKEND', default='local')
 FFMPEG_VIDEO_BITRATE = config('FFMPEG_VIDEO_BITRATE', default='2M')

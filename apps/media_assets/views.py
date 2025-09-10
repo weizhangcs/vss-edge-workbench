@@ -16,7 +16,6 @@ from django.contrib import admin
 
 @login_required
 def batch_file_upload_view(request, asset_id):
-    # (您的原始代码已正确，保持不变)
     if request.method == 'POST':
         try:
             asset = Asset.objects.get(id=asset_id)

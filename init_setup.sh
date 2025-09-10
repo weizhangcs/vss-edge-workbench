@@ -47,7 +47,7 @@ sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE
 
 # --- Other prompts ---
 read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL
-read -s -p "Enter the initial Django superuser password: " DJANgo_SUPERUSER_PASSWORD
+read -s -p "Enter the initial Django superuser password: " DJANGO_SUPERUSER_PASSWORD
 echo
 read -p "Enter the Label Studio Access Token (from the LS UI): " LABEL_STUDIO_ACCESS_TOKEN
 

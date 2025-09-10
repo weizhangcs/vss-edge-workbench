@@ -17,4 +17,4 @@ services:
   subeditor:
      image: ghcr.io/weizhangcs/vss-subeditor:v1.0.3 # Define the tag for the subeditor image
      build:
-       context: ./vss-sub-editor # Assumes the subeditor source code is in a subdirectory
+       context: ../visify-subeditor
