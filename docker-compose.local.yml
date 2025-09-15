@@ -2,8 +2,12 @@
 # This file is for the local development environment. It overrides the base configuration to build from local source.
 
 services:
+  db:
+    ports:
+      - "8543:5432"
+
   web:
-    image: ghcr.io/weizhangcs/vss-workbench:v2.0.4
+    image: ghcr.io/weizhangcs/vss-workbench:dev
     build:
       context: .
       args:
@@ -14,7 +18,7 @@ services:
       - .:/app
 
   celery_worker:
-    image: ghcr.io/weizhangcs/vss-workbench:v2.0.4
+    image: ghcr.io/weizhangcs/vss-workbench:dev
     build:
       context: .
       args:
@@ -24,7 +28,7 @@ services:
       - .:/app
 
   subeditor:
-     image: ghcr.io/weizhangcs/vss-subeditor:v1.0.4
+     image: ghcr.io/weizhangcs/vss-subeditor:dev
      build:
        context: D:\DevProjects\WebstormProjects\vss-sub-editor
        args:

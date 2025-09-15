@@ -1,7 +1,7 @@
 # 文件路径: apps/workflow/projects/annotationProject.py
 
 from django.db import models
-from .baseProject import BaseProject # <-- 导入 BaseProject
+from ..common.baseProject import BaseProject # <-- 导入 BaseProject
 
 def get_ls_export_upload_path(instance, filename):
     """为Label Studio导出文件生成动态路径"""
@@ -16,6 +16,15 @@ class AnnotationProject(BaseProject):
     一个具体的标注工作项目。
     它继承了 BaseProject 的所有通用字段，并可以添加自己独有的字段。
     """
+    source_encoding_profile = models.ForeignKey(
+        'configuration.EncodingProfile',
+        on_delete=models.PROTECT,
+        null=True, # 允许为空，但我们会在 admin 中设为必填
+        blank=False,
+        verbose_name="源编码配置",
+        help_text="选择一个编码配置。标注工具将使用此配置转码后的视频，以加快加载速度。"
+    )
+
     # --- 过程产出物字段 ---
     label_studio_project_id = models.IntegerField(blank=True, null=True, verbose_name="Label Studio 项目ID")
     label_studio_export_file = models.FileField(upload_to=get_ls_export_upload_path, blank=True, null=True, verbose_name="Label Studio 导出文件")
@@ -47,7 +56,7 @@ class AnnotationProject(BaseProject):
         """
         重写 save 方法，在首次创建 AnnotationProject 时，触发与 Label Studio 同步的后台任务。
         """
-        from ..tasks.annotation_tasks import create_label_studio_project_task
+        from .tasks import create_label_studio_project_task
         is_new = self._state.adding
         super().save(*args, **kwargs)
 

@@ -92,6 +92,7 @@ services:
       - DJANGO_SESSION_COOKIE_SECURE=False
       - DJANGO_CSRF_COOKIE_SECURE=False
       - CSRF_TRUSTED_ORIGINS=${LABEL_STUDIO_PUBLIC_URL}
+      - CSP_CONNECT_SRC='self' https://cdn.vriworks.app
 
 volumes:
   postgres_data:

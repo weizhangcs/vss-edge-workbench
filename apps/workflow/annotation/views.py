@@ -9,12 +9,31 @@ from django.http import JsonResponse
 from django.core.files.base import ContentFile
 import logging
 
-from ..models import AnnotationJob
-from ..projects.annotationProject import AnnotationProject
-from ..tasks.annotation_tasks import generate_narrative_blueprint_task
+from ..models import AnnotationJob,AnnotationProject, TranscodingJob
+from .tasks import generate_narrative_blueprint_task
 
 logger = logging.getLogger(__name__)
 
+
+def get_video_url_for_job(job: AnnotationJob) -> str:
+    project = job.project
+    media_item = job.media
+
+    video_url = None
+    if project.source_encoding_profile:
+        transcoding_job = TranscodingJob.objects.filter(
+            media=media_item,
+            profile=project.source_encoding_profile,
+            status=TranscodingJob.STATUS.COMPLETED
+        ).order_by('-modified').first()
+
+        if transcoding_job and transcoding_job.output_url:
+            video_url = transcoding_job.output_url
+
+    if not video_url:
+        video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+
+    return video_url
 
 def start_l1_annotation_view(request, job_id):
     """
@@ -29,7 +48,9 @@ def start_l1_annotation_view(request, job_id):
         job.save()
         messages.success(request, f"字幕任务 '{job.media.title}' 状态已更新为“处理中”。")
 
-    video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
+    #video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
+    # --- 核心修改: 使用辅助函数获取 URL ---
+    video_url = get_video_url_for_job(job)
 
     srt_url = ""
     if job.media.source_subtitle:
@@ -86,7 +107,10 @@ def revise_l1_annotation_view(request, job_id):
         job.save()
         messages.success(request, f"字幕任务 '{job.media.title}' 已重新打开进行修订。")
 
-    video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
+    #video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
+    # --- 核心修改: 使用辅助函数获取 URL ---
+    video_url = get_video_url_for_job(job)
+
     srt_url = ""
     if job.l1_output_file:
         # 【核心修正】手动构建正确的URL，以匹配Nginx配置

@@ -1,39 +1,14 @@
 # 文件路径: apps/workflow/urls.py
 
-from django.urls import path
-from .views import annotation_views
+from django.urls import path, include
 
 app_name = 'workflow'
 
 urlpatterns = [
-    path(
-        'annotation/job/<int:job_id>/start-l1/',
-        annotation_views.start_l1_annotation_view,
-        name='annotation_job_start_l1'
-    ),
-    path(
-        'annotation/job/<int:job_id>/save-l1-output/',
-        annotation_views.save_l1_output_view,
-        name='save_l1_output'
-    ),
-    path(
-        'annotation/job/<int:job_id>/revise-l1/',
-        annotation_views.revise_l1_annotation_view,
-        name='annotation_job_revise_l1'
-    ),
-    path(
-        'annotation/job/<int:job_id>/start-l2l3/',
-        annotation_views.start_l2l3_annotation_view,
-        name='annotation_job_start_l2l3'
-    ),
-    path(
-        'annotation/project/<uuid:project_id>/export-l2-output/',
-        annotation_views.export_l2_output_view,
-        name='annotation_project_export_l2'
-    ),
-    path(
-        'annotation/project/<uuid:project_id>/generate-blueprint/',
-        annotation_views.generate_blueprint_view,
-        name='annotation_project_generate_blueprint'
-    ),
+    # 将所有以 'annotation/' 开头的请求，都转发给 annotation 子包的 urls.py 去处理
+    path('annotation/', include('apps.workflow.annotation.urls')),
+
+    # 为 transcoding 和 delivery 预留位置，即使它们现在没有自己的 URL
+    # path('transcoding/', include('apps.workflow.transcoding.urls')),
+    # path('delivery/', include('apps.workflow.delivery.urls')),
 ]

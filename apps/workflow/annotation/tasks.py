@@ -7,7 +7,7 @@ from celery import shared_task
 from django.core.files.base import ContentFile
 
 from ..models import AnnotationProject, AnnotationJob
-from ..services.modeling.script_modeler import ScriptModeler
+from .services.modeling.script_modeler import ScriptModeler
 
 # 获取一个日志记录器实例
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def create_label_studio_project_task(project_id: str):
     并为每一个关联的Media文件创建所有初始的AnnotationJob记录。
     """
     from apps.workflow.models import AnnotationProject, AnnotationJob
-    from apps.workflow.services.label_studio import LabelStudioService
+    from apps.workflow.annotation.services.label_studio import LabelStudioService
 
     try:
         project = AnnotationProject.objects.get(id=project_id)
@@ -36,7 +36,7 @@ def create_label_studio_project_task(project_id: str):
 
     service = LabelStudioService()
 
-    success, message, ls_project_id, task_mapping = service.create_project_for_asset(asset=project.asset)
+    success, message, ls_project_id, task_mapping = service.create_project_for_asset(project=project)
 
     if success:
         project.label_studio_project_id = ls_project_id
@@ -72,10 +72,9 @@ def export_l2_output_task(project_id: str):
     """
     一个Celery后台任务，负责从Label Studio导出L2产出物并更新相关任务状态。
     """
-    from apps.workflow.jobs.annotationJob import AnnotationJob
-    from apps.workflow.jobs.baseJob import BaseJob
-    from apps.workflow.projects.annotationProject import AnnotationProject
-    from apps.workflow.services.label_studio import LabelStudioService
+    from apps.workflow.common.baseJob import BaseJob
+    from apps.workflow.models import AnnotationProject, AnnotationJob
+    from apps.workflow.annotation.services.label_studio import LabelStudioService
 
     try:
         project = AnnotationProject.objects.get(id=project_id)

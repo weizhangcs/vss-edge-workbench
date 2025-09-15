@@ -8,5 +8,13 @@
 # To add a new admin module, simply import it here.
 # -----------------------------------------------------------------------------
 
-from .admin_configs.annotationAdmin import *
-from .admin_configs.transcodingAdmin import *
+# 文件路径: apps/workflow/admin.py
+
+# --- 从新的 transcoding 子包导入 ---
+from .transcoding.admin import *
+
+# --- 从新的 annotation 子包导入 ---
+from .annotation.admin import *
+
+# --- 从新的 delivery 子包导入 ---
+from .delivery.admin import *

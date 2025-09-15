@@ -1,9 +1,9 @@
-# 文件路径: apps/workflow/projects/transcodingProject.py
+# 文件路径: apps/workflow/transcoding/projects.py
 
 from django.db import models
-from .baseProject import BaseProject # <-- 导入 BaseProject
 from model_utils import Choices
 from django_fsm import FSMField
+from ..common.baseProject import BaseProject
 
 class TranscodingProject(BaseProject):
     STATUS = Choices(('PENDING', '等待开始'), ('PROCESSING', '处理中'), ('COMPLETED', '已完成'))
@@ -22,6 +22,14 @@ class TranscodingProject(BaseProject):
         default=STATUS.PENDING,
         #choices=STATUS.choices,
         verbose_name="项目状态"
+    )
+
+    encoding_profile = models.ForeignKey(
+        'configuration.EncodingProfile',
+        on_delete=models.PROTECT,
+        null=True, # 允许为空，但我们会在 admin 中设为必填
+        blank=False,
+        verbose_name="编码配置"
     )
 
     def __str__(self):

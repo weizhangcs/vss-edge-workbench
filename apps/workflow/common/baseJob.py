@@ -1,7 +1,5 @@
-# 文件路径: apps/workflow/jobs/baseJob.py
+# 文件路径: apps/workflow/common/base_job.py
 
-from django.db import models
-from django.core.files.base import ContentFile
 from model_utils.models import TimeStampedModel
 from model_utils import Choices
 from django_fsm import FSMField, transition

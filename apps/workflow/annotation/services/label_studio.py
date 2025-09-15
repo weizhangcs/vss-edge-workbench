@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.http import HttpRequest
 
 from apps.media_assets.models import Media, Asset
-from apps.workflow.jobs.annotationJob import AnnotationJob
+from apps.workflow.models import AnnotationProject, TranscodingJob
 
 logger = logging.getLogger(__name__)
 
@@ -28,28 +28,27 @@ class LabelStudioService:
             "Content-Type": "application/json",
         }
 
-    def create_project_for_asset(self, asset: Asset) -> Tuple[bool, str, Optional[int], dict]:
+    def create_project_for_asset(self, project: AnnotationProject) -> Tuple[bool, str, Optional[int], dict]:
         """
-        (V4.5 修正版)
-        为给定的 Asset 创建 Label Studio 项目, 并为其下的每个 Media 文件导入为 Task。
-        此方法不再保存任何内容，而是返回一个包含 media_id->task_id 映射的字典。
-        返回 (success, message, project_id, task_mapping_dict)
+        (V5.0 CDN 加速版)
+        为给定的 AnnotationProject 创建 LS 项目, 并为其下的每个 Media 文件导入为 Task。
+        会智能判断使用 CDN 转码文件还是原始文件。
         """
         try:
-            admin_base_url = "http://localhost:8000"
+            asset = project.asset # 从 project 中获取 asset
+            admin_base_url = "http://localhost:8000" # 在容器内通信使用
             return_to_django_url = f"{admin_base_url}{reverse('admin:media_assets_asset_changelist')}"
 
             label_config_xml = render_to_string('ls_templates/video.xml')
             expert_instruction_html = f"<h4>操作指南</h4><p>请根据视频内容完成标注。</p><p>完成后请返回Django后台：<a href='{return_to_django_url}'>点击这里</a></p>"
 
             project_payload = {
-                "title": f"{asset.title} - 标注项目",
+                "title": f"{asset.title} - {project.name}",
                 "expert_instruction": expert_instruction_html,
                 "label_config": label_config_xml
             }
 
-            project_response = requests.post(f"{self.internal_ls_url}/api/projects", json=project_payload,
-                                             headers=self.headers)
+            project_response = requests.post(f"{self.internal_ls_url}/api/projects", json=project_payload, headers=self.headers)
             project_response.raise_for_status()
             project_data = project_response.json()
             project_id = project_data.get("id")
@@ -58,15 +57,32 @@ class LabelStudioService:
                 return False, "API 调用成功，但未返回项目ID。", None, {}
 
             task_mapping = {}
-
             for media_item in asset.medias.all():
                 if not media_item.source_video: continue
 
-                video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+                # --- ↓↓↓ 核心查找逻辑 ↓↓↓ ---
+                video_url = None
+                # 检查项目是否设置了源编码配置
+                if project.source_encoding_profile:
+                    # 查找与此媒体文件和编码配置匹配的、已完成的转码任务
+                    transcoding_job = TranscodingJob.objects.filter(
+                        media=media_item,
+                        profile=project.source_encoding_profile,
+                        status=TranscodingJob.STATUS.COMPLETED
+                    ).order_by('-modified').first() # 取最新的一个
+
+                    if transcoding_job and transcoding_job.output_url:
+                        video_url = transcoding_job.output_url
+                        logger.info(f"为 Media '{media_item.title}' 找到了 CDN 转码文件: {video_url}")
+
+                # 如果没有找到 CDN 文件，或者项目未设置编码配置，则回退到使用原始文件
+                if not video_url:
+                    video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+                    logger.info(f"为 Media '{media_item.title}' 使用原始文件: {video_url}")
+                # --- ↑↑↑ 查找逻辑结束 ↑↑↑ ---
 
                 task_payload = {"data": {"video_url": video_url}}
-                task_response = requests.post(f"{self.internal_ls_url}/api/projects/{project_id}/tasks",
-                                              json=task_payload, headers=self.headers)
+                task_response = requests.post(f"{self.internal_ls_url}/api/projects/{project_id}/tasks", json=task_payload, headers=self.headers)
 
                 if task_response.status_code == 201:
                     task_id = task_response.json().get('id')

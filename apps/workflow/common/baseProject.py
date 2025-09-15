@@ -1,4 +1,4 @@
-# 文件路径: apps/workflow/projects/base.py
+# 文件路径: apps/workflow/common/base_project.py
 
 import uuid
 from django.db import models

@@ -1,3 +1,5 @@
+# 文件路径: apps/workflow/annotation/admin.py
+
 from django.contrib import admin
 from django.core.paginator import Paginator
 from django.utils.html import format_html
@@ -9,8 +11,8 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from unfold.widgets import UnfoldAdminTextareaWidget
 
-from ..jobs.baseJob import BaseJob
-from ..models import AnnotationProject, AnnotationJob
+from ..common.baseJob import BaseJob
+from ..models import AnnotationProject, AnnotationJob, TranscodingProject
 from ..widgets import FileFieldWithActionButtonWidget
 
 
@@ -26,46 +28,40 @@ class AnnotationProjectForm(forms.ModelForm):
 
         project = self.instance
         if project and project.pk:
-            # --- 导出 L2 产出物 ---
             export_button_url = None
             if project.label_studio_project_id:
                 export_button_url = reverse('workflow:annotation_project_export_l2', args=[project.pk])
-            # 使用自定义小部件，并为按钮传入 'default' 变体样式（带边框，无背景色）
             self.fields['label_studio_export_file'].widget = FileFieldWithActionButtonWidget(
-                button_url=export_button_url,
-                button_text="导出/更新",
-                button_variant="default"
+                button_url=export_button_url, button_text="导出/更新", button_variant="default"
             )
-
-            # --- 生成蓝图 ---
             blueprint_button_url = None
             if project.label_studio_export_file:
                 blueprint_button_url = reverse('workflow:annotation_project_generate_blueprint', args=[project.pk])
-            # 使用自定义小部件，并为按钮传入 'primary' 变体样式（主色调按钮）
             self.fields['final_blueprint_file'].widget = FileFieldWithActionButtonWidget(
-                button_url=blueprint_button_url,
-                button_text="生成/重建",
-                button_variant="primary"
+                button_url=blueprint_button_url, button_text="生成/重建", button_variant="primary"
             )
+
 
 @admin.register(AnnotationJob)
 class AnnotationJobAdmin(ModelAdmin):
     list_display = ('__str__', 'status', 'created', 'modified')
     list_filter = ('status', 'job_type')
 
+
 @admin.register(AnnotationProject)
 class AnnotationProjectAdmin(ModelAdmin):
     form = AnnotationProjectForm
-
-    # change list列表页的关键要素
     list_display = ('name', 'asset', 'status', 'created', 'modified', 'view_project_details')
     list_display_links = ('name',)
-
-    # change 详情页的关键要素
     change_form_template = "admin/workflow/project/annotation/change_form.html"
     autocomplete_fields = ['asset']
     fieldsets = (
-        ('项目信息', {'fields': ('name', 'description', 'asset')}),
+        ('项目信息', {'fields': (
+            'name',
+            'description',
+            'asset',
+            'source_encoding_profile'
+        )}),
         ('项目级产出物', {
             'fields': (
                 'label_studio_project_id',
@@ -89,7 +85,7 @@ class AnnotationProjectAdmin(ModelAdmin):
         l2l3_status_filter = request.GET.get('l2l3_status')
         page_number = request.GET.get('page', 1)
 
-        if project and project.asset:
+        if project and hasattr(project, 'asset') and project.asset:
             media_items_with_status = []
             all_media = project.asset.medias.all().order_by('sequence_number')
 

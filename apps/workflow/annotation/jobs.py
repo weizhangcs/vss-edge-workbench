@@ -7,7 +7,7 @@ from django.core.files.base import ContentFile
 from model_utils import Choices
 from django_fsm import FSMField, transition
 
-from .baseJob import BaseJob
+from ..common.baseJob import BaseJob
 from apps.media_assets.models import Media
 
 # 定义一个临时的存储位置，如果需要更复杂的权限控制可以替换

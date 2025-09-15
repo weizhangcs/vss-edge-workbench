@@ -127,8 +127,9 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_IMPORTS = (
     'apps.media_assets.tasks',
-    'apps.workflow.tasks.transcoding_tasks',
-    'apps.workflow.tasks.annotation_tasks'
+    'apps.workflow.transcoding.tasks',
+    'apps.workflow.delivery.tasks',
+    'apps.workflow.annotation.tasks',
 )
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
@@ -161,27 +162,65 @@ UNFOLD = {
     "SITE_TITLE": "Visify Story Studio",
     "SIDEBAR": {
         "navigation": [
+            # '工作台' 和 '媒资管理' 保持不变
             {'title': '工作台', 'items': [{'title': '仪表盘', 'icon': 'space_dashboard', 'link': reverse_lazy('admin:index')}]},
-            {'title': '媒资管理', 'separator': True, 'items': [{'title': '内容资产', 'link': reverse_lazy('admin:media_assets_asset_changelist'), 'icon': 'video_library'},{'title': '媒体文件', 'link': reverse_lazy('admin:media_assets_media_changelist'), 'icon': 'movie'}]},
+            {'title': '媒资管理', 'separator': True, 'items': [
+                {'title': '内容资产', 'link': reverse_lazy('admin:media_assets_asset_changelist'), 'icon': 'video_library'},
+                {'title': '媒体文件', 'link': reverse_lazy('admin:media_assets_media_changelist'), 'icon': 'movie'}
+            ]},
+            # 1. 创建“转码工作流”一级菜单
             {
-                'title': '工作流管理',
+                'title': '转码工作流',
                 'separator': True,
                 'items': [
                     {
-                        'title': '标注项目',
-                        'icon': 'rate_review',  # 一个更合适的图标
-                        # 链接到 AnnotationProject 的列表页
-                        'link': reverse_lazy('admin:workflow_annotationproject_changelist')
+                        'title': '转码项目',
+                        'icon': 'movie_filter',
+                        'link': reverse_lazy('admin:workflow_transcodingproject_changelist')
                     },
                     {
-                        'title': '转码项目',
-                        'icon': 'transform',  # 一个更合适的图标
-                        # 链接到 TranscodingProject 的列表页
-                        'link': reverse_lazy('admin:workflow_transcodingproject_changelist')
+                        'title': '转码任务',
+                        'icon': 'history',
+                        'link': reverse_lazy('admin:workflow_transcodingjob_changelist')
+                    },
+                    {
+                        'title': '转码配置', # 从“系统设置”移动到这里
+                        'icon': 'tune',
+                        'link': reverse_lazy('admin:configuration_encodingprofile_changelist')
                     },
                 ]
             },
-            {'title': '系统设置', 'separator': True, 'items': [{'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'), 'icon': 'hub'}, {'title': '用户', 'link': reverse_lazy('admin:auth_user_changelist'), 'icon': 'group'}, {'title': '用户组', 'link': reverse_lazy('admin:auth_group_changelist'), 'icon': 'groups'}]},
+            # 2. 创建“分发工作流”一级菜单
+            {
+                'title': '分发工作流',
+                'separator': True,
+                'items': [
+                    {
+                        'title': '分发任务',
+                        'icon': 'send', # 一个表示发送/分发的图标
+                        'link': reverse_lazy('admin:workflow_deliveryjob_changelist')
+                    },
+                ]
+            },
+            # 3. 创建“标注工作流”一级菜单
+            {
+                'title': '标注工作流',
+                'separator': True, # 与其他一级菜单分隔
+                'items': [
+                    {
+                        'title': '标注项目',
+                        'icon': 'rate_review',
+                        'link': reverse_lazy('admin:workflow_annotationproject_changelist')
+                    },
+                    # 未来可以添加“标注任务”等子菜单
+                ]
+            },
+            # 4. 更新“系统设置”菜单，移除“编码配置”
+            {'title': '系统设置', 'separator': True, 'items': [
+                {'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'), 'icon': 'hub'},
+                {'title': '用户', 'link': reverse_lazy('admin:auth_user_changelist'), 'icon': 'group'},
+                {'title': '用户组', 'link': reverse_lazy('admin:auth_group_changelist'), 'icon': 'groups'}
+            ]}
         ],
     },
 }
