@@ -23,7 +23,7 @@ services:
       context: .
       args:
         - APT_MIRROR=mirrors.aliyun.com
-        - PIP_MIRROR_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+        - PIP_MIRROR_URL=https://mirrors.aliyun.com/pypi/simple/
     volumes:
       - .:/app
 

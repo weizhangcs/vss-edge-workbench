@@ -156,7 +156,7 @@ def export_l2_output_view(request, project_id):
     project = get_object_or_404(AnnotationProject, id=project_id)
 
     # 引入我们将在下一步创建的 Celery Task
-    from ..tasks.annotation_tasks import export_l2_output_task
+    from .tasks import export_l2_output_task
 
     export_l2_output_task.delay(project_id=str(project.id))
 
