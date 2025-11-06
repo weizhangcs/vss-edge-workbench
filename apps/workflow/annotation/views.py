@@ -1,16 +1,25 @@
-# 文件路径: apps/workflow/views/annotation_views.py
+# 文件路径: apps/workflow/annotation/views.py
 
-from django.shortcuts import get_object_or_404, redirect
+import json
+import logging
+from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.urls import reverse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
-import logging
+from django.contrib import admin
 
-from ..models import AnnotationJob,AnnotationProject, TranscodingJob
-from .tasks import generate_narrative_blueprint_task
+from ..models import AnnotationJob, AnnotationProject, TranscodingJob
+from .tasks import (
+    generate_narrative_blueprint_task,
+    export_l2_output_task,
+    start_cloud_pipeline_task,
+    start_cloud_metrics_task,
+    continue_cloud_facts_task
+)
+from .forms import CharacterSelectionForm  #
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +40,15 @@ def get_video_url_for_job(job: AnnotationJob) -> str:
             video_url = transcoding_job.output_url
 
     if not video_url:
-        video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+        #
+        if media_item.source_video:
+            video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+        else:
+            #
+            video_url = ""
 
     return video_url
+
 
 def start_l1_annotation_view(request, job_id):
     """
@@ -44,11 +59,10 @@ def start_l1_annotation_view(request, job_id):
     job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L1_SUBEDITING)
 
     if job.status == 'PENDING':
-        job.start()
+        job.start_annotation()  #
         job.save()
         messages.success(request, f"字幕任务 '{job.media.title}' 状态已更新为“处理中”。")
 
-    #video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
     # --- 核心修改: 使用辅助函数获取 URL ---
     video_url = get_video_url_for_job(job)
 
@@ -63,6 +77,7 @@ def start_l1_annotation_view(request, job_id):
     subeditor_url = f"{settings.SUBEDITOR_PUBLIC_URL}?videoUrl={video_url}&srtUrl={srt_url}&jobId={job_id_param}&returnUrl={return_url_param}"
 
     return redirect(subeditor_url)
+
 
 @csrf_exempt
 def save_l1_output_view(request, job_id):
@@ -83,7 +98,7 @@ def save_l1_output_view(request, job_id):
         file_name = f"{job.media.title}_l1.ass"
         job.l1_output_file.save(file_name, ContentFile(ass_content.encode('utf-8')), save=False)
 
-        job.complete()
+        job.complete_annotation()  #
         job.save()
 
         return JsonResponse({'status': 'success', 'message': 'L1 output saved and job marked as complete.'})
@@ -93,6 +108,7 @@ def save_l1_output_view(request, job_id):
         job.save()
         logger.error(f"保存L1产出物时出错 (Job ID: {job.id}): {e}", exc_info=True)
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 def revise_l1_annotation_view(request, job_id):
     """
@@ -107,15 +123,13 @@ def revise_l1_annotation_view(request, job_id):
         job.save()
         messages.success(request, f"字幕任务 '{job.media.title}' 已重新打开进行修订。")
 
-    #video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_video.url}"
     # --- 核心修改: 使用辅助函数获取 URL ---
     video_url = get_video_url_for_job(job)
 
     srt_url = ""
     if job.l1_output_file:
-        # 【核心修正】手动构建正确的URL，以匹配Nginx配置
-        # job.l1_output_file.name 的值是类似: <project_id>/<job_id>_filename.ass
-        correct_path = f"/media/annotation/{job.l1_output_file.name}"
+        #
+        correct_path = f"/media/{job.l1_output_file.name}"
         srt_url = f"{settings.LOCAL_MEDIA_URL_BASE}{correct_path}"
 
     job_id_param = job.id
@@ -126,6 +140,7 @@ def revise_l1_annotation_view(request, job_id):
 
     return redirect(subeditor_url)
 
+
 def start_l2l3_annotation_view(request, job_id):
     """
     处理“开始L2/L3语义标注”按钮点击的视图。
@@ -135,7 +150,7 @@ def start_l2l3_annotation_view(request, job_id):
     job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L2L3_SEMANTIC)
 
     if job.status == 'PENDING':
-        job.start()
+        job.start_annotation()  #
         job.save()
         messages.success(request, f"语义标注任务 '{job.media.title}' 状态已更新为“处理中”。")
 
@@ -149,20 +164,19 @@ def start_l2l3_annotation_view(request, job_id):
 
     return redirect(label_studio_task_url)
 
+
 def export_l2_output_view(request, project_id):
     """
     触发一个后台任务，从 Label Studio 导出 L2 产出物。
     """
     project = get_object_or_404(AnnotationProject, id=project_id)
 
-    # 引入我们将在下一步创建的 Celery Task
-    from .tasks import export_l2_output_task
-
     export_l2_output_task.delay(project_id=str(project.id))
 
     messages.success(request, f"已启动为项目《{project.name}》导出L2产出物的后台任务。请稍后刷新查看结果。")
 
     return redirect(reverse('admin:workflow_annotationproject_change', args=[project.id]))
+
 
 def generate_blueprint_view(request, project_id):
     """
@@ -177,3 +191,126 @@ def generate_blueprint_view(request, project_id):
         messages.success(request, f"已启动为项目《{project.name}》生成叙事蓝图的后台任务。")
 
     return redirect(reverse('admin:workflow_annotationproject_change', args=[project.id]))
+
+
+# =============================================================================
+# ---
+# =============================================================================
+
+def reasoning_workflow_view(request, project_id):
+    """
+
+    """
+    project = get_object_or_404(AnnotationProject, pk=project_id)
+
+    context = {
+        **admin.site.each_context(request),  #
+        "opts": AnnotationProject._meta,
+        "original": project,
+        "title": f"云端推理工作流: {project.name}",
+        "has_view_permission": True,
+        "has_change_permission": True,  #
+        "character_selection_form": None,
+    }
+
+    #
+    if project.cloud_reasoning_status == 'WAITING_FOR_SELECTION':
+        metrics_data = None
+        try:
+            if project.cloud_metrics_result_file and project.cloud_metrics_result_file.path:
+                with project.cloud_metrics_result_file.open('r') as f:
+                    metrics_data = json.load(f)
+            else:
+                messages.error(request, "状态错误：项目处于等待选择状态，但找不到“角色矩阵”产出文件。")
+        except Exception as e:
+            logger.error(f"无法加载或解析 metrics_result_file (项目: {project.id}): {e}", exc_info=True)
+            messages.error(request, f"无法加载角色矩阵文件: {e}")
+
+        if metrics_data:
+            #
+            context['character_selection_form'] = CharacterSelectionForm(metrics_data=metrics_data)
+
+    return render(request, 'admin/workflow/project/annotation/reasoning_workflow.html', context)
+
+
+def trigger_cloud_pipeline_view(request, project_id):
+    """
+
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    if not project.final_blueprint_file:
+        messages.error(request, "错误：缺少 叙事蓝图(Blueprint) 产出物，无法启动。")
+        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+    #
+    top_n = request.POST.get('top_n', 3)
+    try:
+        top_n = int(top_n)
+    except ValueError:
+        top_n = 3
+
+    start_cloud_pipeline_task.delay(project_id=str(project.id), top_n=top_n)
+    messages.success(request, f"成功启动“自动推理流水线 (Top {top_n})”任务。")
+
+    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+
+def trigger_cloud_metrics_view(request, project_id):
+    """
+
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    if not project.final_blueprint_file:
+        messages.error(request, "错误：缺少 叙事蓝图(Blueprint) 产出物，无法启动。")
+        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+    start_cloud_metrics_task.delay(project_id=str(project.id))
+    messages.success(request, "成功启动“分析角色矩阵”任务，请稍后刷新。")
+
+    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+
+def trigger_cloud_facts_view(request, project_id):
+    """
+    处理来自 "reasoning_workflow" 页面的角色选择表单提交。
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)  #
+
+    if request.method != 'POST':  #
+        messages.error(request, "无效的请求方法。")
+        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+    # --- [!!! 修复开始 !!!] ---
+
+    # 1. 必须在验证表单前加载 metrics_data，以填充 'choices'
+    #    这部分逻辑与 reasoning_workflow_view 中的逻辑一致
+    metrics_data = None
+    try:
+        if project.cloud_metrics_result_file and project.cloud_metrics_result_file.path:
+            with project.cloud_metrics_result_file.open('r') as f:
+                metrics_data = json.load(f)
+        else:
+            # 如果文件丢失，这是个严重错误
+            messages.error(request, "致命错误：找不到用于验证的 角色矩阵(metrics) 文件。")
+            return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+    except Exception as e:
+        logger.error(f"无法加载或解析 metrics_result_file (项目: {project.id}): {e}", exc_info=True)
+        messages.error(request, f"无法加载角色矩阵文件: {e}")
+        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+    # 2. 将 metrics_data 和 request.POST 一起传入表单构造函数
+    form = CharacterSelectionForm(request.POST, metrics_data=metrics_data)  #
+
+    # --- [!!! 修复结束 !!!] ---
+
+    if form.is_valid():  #
+        selected_characters = form.cleaned_data['characters']
+        continue_cloud_facts_task.delay(project_id=str(project.id), characters_to_analyze=selected_characters)  #
+        messages.success(request, f"已为 {len(selected_characters)} 个角色启动“识别角色属性”任务。")
+    else:
+        # 这个错误消息现在会正确显示在页面上
+        messages.error(request, f"表单提交无效: {form.errors.as_text()}")  #
+
+    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))

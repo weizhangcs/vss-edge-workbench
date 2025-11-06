@@ -11,6 +11,10 @@ def get_blueprint_upload_path(instance, filename):
     """为最终蓝图文件生成动态路径"""
     return f'annotation/{instance.id}/blueprints/{filename}'
 
+def get_cloud_output_upload_path(instance, filename):
+    """为云端推理产出物生成动态路径"""
+    return f'annotation/{instance.id}/cloud_outputs/{filename}'
+
 class AnnotationProject(BaseProject):
     """
     一个具体的标注工作项目。
@@ -45,6 +49,44 @@ class AnnotationProject(BaseProject):
         choices=BLUEPRINT_STATUS_CHOICES,
         default='PENDING',
         verbose_name="蓝图生成状态"
+    )
+
+    # --- [!!! 新增字段 !!!] ---
+    CLOUD_REASONING_STATUS_CHOICES = (
+        ('PENDING', '未开始'),
+        ('BLUEPRINT_UPLOADING', '上传蓝图'),
+        ('METRICS_RUNNING', '分析角色矩阵'),
+        ('WAITING_FOR_SELECTION', '等待角色选择'),  # “中断”状态
+        ('FACTS_RUNNING', '识别角色属性'),
+        ('PIPELINE_RUNNING', '执行自动流水线'),
+        ('RAG_DEPLOYING', '部署知识图谱'),
+        ('COMPLETED', '已完成'),
+        ('FAILED', '失败'),
+    )
+    cloud_reasoning_status = models.CharField(
+        max_length=30,
+        choices=CLOUD_REASONING_STATUS_CHOICES,
+        default='PENDING',
+        verbose_name="云端推理状态"
+    )
+    cloud_reasoning_error = models.TextField(blank=True, null=True, verbose_name="推理失败信息")
+
+    # --- 存储云端任务 ID 和路径 ---
+    cloud_blueprint_path = models.CharField(max_length=1024, blank=True, null=True, verbose_name="云端蓝图路径")
+    cloud_facts_path = models.CharField(max_length=1024, blank=True, null=True, verbose_name="云端角色属性路径")
+
+    # --- 存储云端任务产出物 ---
+    cloud_metrics_result_file = models.FileField(
+        upload_to=get_cloud_output_upload_path,
+        blank=True, null=True, verbose_name="角色矩阵产出 (JSON)"
+    )
+    cloud_facts_result_file = models.FileField(
+        upload_to=get_cloud_output_upload_path,
+        blank=True, null=True, verbose_name="角色属性产出 (JSON)"
+    )
+    cloud_rag_report_file = models.FileField(
+        upload_to=get_cloud_output_upload_path,
+        blank=True, null=True, verbose_name="RAG 部署报告 (JSON)"
     )
 
     def get_label_studio_project_url(self):

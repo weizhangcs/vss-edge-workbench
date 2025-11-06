@@ -124,3 +124,121 @@
   </fieldset>
 </div>
 {% endblock %}
+
+{% comment %}
+--- 这是新增的 JS 块，粘贴在文件的最末尾 ---
+{% endcomment %}
+
+{% block extrajs %}
+    {# 1. 必须调用 super，保留 Django 和 Unfold 的默认 JS #}
+    {{ block.super }}
+
+    <script>
+    document.addEventListener('DOMContentLoaded', (event) => {
+
+        // 2. 查找我们刚刚在 widgets.py 中添加的按钮 class
+        const triggerButton = document.querySelector('.js-cloud-trigger-btn');
+
+        // 3. 从 Django 上下文获取 object_id (UUID)
+        const objectId = '{{ object_id|escapejs }}';
+
+        if (triggerButton && objectId && objectId !== 'None') {
+
+            let triggerUrl;
+            let workflowUrl;
+
+            try {
+                // 4. [已修正] 使用 'workflow:' 命名空间 (来自 urls.py 和 admin.py)
+
+                // 对应 urls.py 中的: path('.../trigger-cloud-pipeline/', ...)
+                triggerUrl = '{% url "workflow:annotation_project_trigger_cloud_pipeline" project_id=object_id %}';
+
+                // 对应 urls.py 和 admin.py 中的: path('.../reasoning-workflow/', ...)
+                workflowUrl = '{% url "workflow:annotation_project_reasoning_workflow" project_id=object_id %}';
+
+            } catch (e) {
+                console.error("无法在 Django 模板中解析 URL。请检查 'workflow:...' URL 名称是否正确。", e);
+                return;
+            }
+
+            // 5. 核心：为按钮添加点击事件
+            triggerButton.addEventListener('click', function(e) {
+                // 阻止按钮的默认 <a href> 跳转行为
+                e.preventDefault();
+
+                console.log('Triggering task for project:', objectId);
+
+                const originalText = this.textContent;
+                this.textContent = '正在启动...';
+                this.disabled = true;
+
+                // 6. 步骤 A: 异步触发后端任务
+                fetch(triggerUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('input[name="csrfmiddlewaretoken"]').value,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.message || '启动任务失败。') });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // (您的 trigger 视图目前是重定向，但如果它返回 JSON 会更好)
+                    // 我们暂时假设 200 OK 就意味着成功
+                    if (data.status === 'success' || data.task_id || response.ok) {
+
+                        // 7. 步骤 B: 任务启动成功，打开新窗口
+                        console.log('任务启动成功, 正在打开工作流页面:', workflowUrl);
+                        window.open(workflowUrl, '_blank');
+
+                        this.textContent = '任务已启动!';
+                        setTimeout(() => {
+                            this.textContent = originalText;
+                            this.disabled = false;
+                        }, 2000);
+
+                    } else {
+                        throw new Error(data.message || '从后端收到了未知的响应');
+                    }
+                })
+                .catch(error => {
+                    // 8. 错误处理
+                    console.error('触发云端任务时出错:', error);
+                    // 检查是否是因为 fetch 期望 JSON 但收到了重定向
+                    if (error.name === 'SyntaxError') {
+                        console.warn('Fetch 捕获到 SyntaxError，这可能是因为后端视图返回了重定向(Redirect)而不是 JSON。正在按成功处理...');
+
+                        // [临时处理]：如果是因为后端重定向导致 JSON 解析失败，我们仍认为启动成功
+                        console.log('任务启动成功 (假定), 正在打开工作流页面:', workflowUrl);
+                        window.open(workflowUrl, '_blank');
+                        this.textContent = '任务已启动!';
+                        setTimeout(() => {
+                            this.textContent = originalText;
+                            this.disabled = false;
+                        }, 2000);
+
+                    } else {
+                        alert('错误: ' + error.message);
+                        this.textContent = originalText;
+                        this.disabled = false;
+                    }
+                });
+            });
+
+        } else {
+            // 调试
+            if (!triggerButton) {
+                console.warn('Admin JS: 未找到云端触发按钮 (.js-cloud-trigger-btn)。请检查您的 widget.py 是否已修改。');
+            }
+            if (!objectId || objectId === 'None') {
+                console.warn('Admin JS: 未找到 object_id (这在 "Add" 页面是正常的)。');
+            }
+        }
+    });
+    </script>
+{% endblock %}

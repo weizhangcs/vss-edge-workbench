@@ -1,11 +1,14 @@
 # 文件路径: apps/workflow/annotation/admin.py
 
+import json
+import logging
 from django.contrib import admin
 from django.core.paginator import Paginator
 from django.utils.html import format_html
 from django.urls import reverse, path
 from django import forms
 from django.db import models
+from django.contrib import messages
 
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
@@ -14,6 +17,11 @@ from unfold.widgets import UnfoldAdminTextareaWidget
 from ..common.baseJob import BaseJob
 from ..models import AnnotationProject, AnnotationJob, TranscodingProject
 from ..widgets import FileFieldWithActionButtonWidget
+from .forms import CharacterSelectionForm
+#
+from . import views as annotation_views
+
+logger = logging.getLogger(__name__)
 
 
 class AnnotationProjectForm(forms.ModelForm):
@@ -28,17 +36,35 @@ class AnnotationProjectForm(forms.ModelForm):
 
         project = self.instance
         if project and project.pk:
+            #
             export_button_url = None
             if project.label_studio_project_id:
                 export_button_url = reverse('workflow:annotation_project_export_l2', args=[project.pk])
             self.fields['label_studio_export_file'].widget = FileFieldWithActionButtonWidget(
                 button_url=export_button_url, button_text="导出/更新", button_variant="default"
             )
+
+            #
             blueprint_button_url = None
             if project.label_studio_export_file:
                 blueprint_button_url = reverse('workflow:annotation_project_generate_blueprint', args=[project.pk])
+
+            # ---
+            #
+            reasoning_page_url = None
+            if project.final_blueprint_file:
+                #
+                reasoning_page_url = reverse('workflow:annotation_project_reasoning_workflow', args=[project.pk])
+            # ---
+
             self.fields['final_blueprint_file'].widget = FileFieldWithActionButtonWidget(
-                button_url=blueprint_button_url, button_text="生成/重建", button_variant="primary"
+                button_url=blueprint_button_url,
+                button_text="生成/重建",
+                button_variant="primary",
+                #
+                secondary_button_url=reasoning_page_url,
+                secondary_button_text="[ ➔ ] 云端推理",
+                secondary_button_variant="default"
             )
 
 
@@ -51,10 +77,14 @@ class AnnotationJobAdmin(ModelAdmin):
 @admin.register(AnnotationProject)
 class AnnotationProjectAdmin(ModelAdmin):
     form = AnnotationProjectForm
-    list_display = ('name', 'asset', 'status', 'created', 'modified', 'view_project_details')
+    #
+    list_display = ('name', 'asset', 'status', 'blueprint_status', 'cloud_reasoning_status', 'created', 'modified',
+                    'view_project_details')
     list_display_links = ('name',)
     change_form_template = "admin/workflow/project/annotation/change_form.html"
     autocomplete_fields = ['asset']
+
+    # ---
     fieldsets = (
         ('项目信息', {'fields': (
             'name',
@@ -68,19 +98,49 @@ class AnnotationProjectAdmin(ModelAdmin):
                 'character_audit_report',
                 'label_studio_export_file',
                 'final_blueprint_file',
-                'blueprint_validation_report'
+                'blueprint_validation_report',
+
+                #
+                'cloud_reasoning_status',
+                'cloud_metrics_result_file',
+                'cloud_facts_result_file',
+                'cloud_rag_report_file',
             )
         }),
     )
+    # ---
+
     formfield_overrides = {
         models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={'rows': 3})},
     }
-    readonly_fields = ('label_studio_project_id', 'character_audit_report', 'blueprint_validation_report')
+
+    #
+    readonly_fields = (
+        'label_studio_project_id', 'character_audit_report', 'blueprint_validation_report',
+        'cloud_reasoning_status', 'cloud_metrics_result_file',
+        'cloud_facts_result_file', 'cloud_rag_report_file', 'cloud_blueprint_path', 'cloud_facts_path'
+    )
+
+    def get_urls(self):
+        """
+
+        """
+        urls = super().get_urls()
+        custom_urls = [
+            #
+            path(
+                '<uuid:project_id>/reasoning-workflow/',
+                self.admin_site.admin_view(annotation_views.reasoning_workflow_view),
+                name='annotation_project_reasoning_workflow'
+            ),
+        ]
+        return custom_urls + urls
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
         project = self.get_object(request, object_id)
 
+        #
         l1_status_filter = request.GET.get('l1_status')
         l2l3_status_filter = request.GET.get('l2l3_status')
         page_number = request.GET.get('page', 1)
@@ -123,6 +183,8 @@ class AnnotationProjectAdmin(ModelAdmin):
             }
             extra_context['status_choices'] = BaseJob.STATUS
 
+        #
+        #
         return super().change_view(
             request, object_id, form_url, extra_context=extra_context,
         )

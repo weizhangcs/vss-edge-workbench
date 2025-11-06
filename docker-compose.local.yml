@@ -13,6 +13,7 @@ services:
       args:
         # Pass the Chinese mirror URL to the Dockerfile's APT_MIRROR argument
         - APT_MIRROR=mirrors.aliyun.com
+        - PIP_MIRROR_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
     volumes:
       # Mount the local source code to enable hot-reloading
       - .:/app
@@ -23,7 +24,7 @@ services:
       context: .
       args:
         - APT_MIRROR=mirrors.aliyun.com
-        - PIP_MIRROR_URL=https://mirrors.aliyun.com/pypi/simple/
+        - PIP_MIRROR_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
     volumes:
       - .:/app
 

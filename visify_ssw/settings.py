@@ -152,6 +152,11 @@ LABEL_STUDIO_PUBLIC_URL = config("LABEL_STUDIO_PUBLIC_URL", default="http://loca
 SUBEDITOR_PUBLIC_URL = config("SUBEDITOR_PUBLIC_URL", default="http://localhost:3000")
 LABEL_STUDIO_ACCESS_TOKEN = config('LABEL_STUDIO_ACCESS_TOKEN', default='')
 
+# --- 新增：Cloud API 设置 ---
+CLOUD_API_BASE_URL = config('CLOUD_API_BASE_URL', default='')
+CLOUD_INSTANCE_ID = config('CLOUD_INSTANCE_ID', default='')
+CLOUD_API_KEY = config('CLOUD_API_KEY', default='')
+
 STATIC_URL = f'{LOCAL_MEDIA_URL_BASE}/static/'
 
 STORAGE_BACKEND = config('STORAGE_BACKEND', default='local')
