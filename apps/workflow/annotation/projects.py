@@ -7,6 +7,10 @@ def get_ls_export_upload_path(instance, filename):
     """为Label Studio导出文件生成动态路径"""
     return f'annotation/{instance.id}/ls_exports/{filename}'
 
+def get_l1_output_upload_path(instance, filename):
+    """为Label Studio导出文件生成动态路径"""
+    return f'annotation/{instance.id}/l1_exports/{filename}'
+
 def get_blueprint_upload_path(instance, filename):
     """为最终蓝图文件生成动态路径"""
     return f'annotation/{instance.id}/blueprints/{filename}'
@@ -34,9 +38,19 @@ class AnnotationProject(BaseProject):
     label_studio_export_file = models.FileField(upload_to=get_ls_export_upload_path, blank=True, null=True, verbose_name="Label Studio 导出文件")
 
     character_audit_report = models.FileField(upload_to='audit_reports/l1_character/', blank=True, null=True, verbose_name="角色名审计报告 (CSV)")
+    character_occurrence_report = models.FileField(
+        upload_to='audit_reports/l1_character_occurrences/',
+        blank=True, null=True,
+        verbose_name="角色出现详情 (日志)"
+    )
 
     blueprint_validation_report = models.JSONField(blank=True, null=True, verbose_name="叙事蓝图验证报告")
     final_blueprint_file = models.FileField(upload_to=get_blueprint_upload_path, blank=True, null=True, verbose_name="最终叙事蓝图 (JSON)")
+    local_metrics_result_file = models.FileField(
+        upload_to=get_cloud_output_upload_path,  # 复用 L3 产出物的路径
+        blank=True, null=True,
+        verbose_name="角色矩阵产出 (本地)"
+    )
 
     BLUEPRINT_STATUS_CHOICES = (
         ('PENDING', '未开始'),

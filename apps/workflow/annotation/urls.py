@@ -61,4 +61,15 @@ urlpatterns = [
         annotation_views.trigger_cloud_facts_view,
         name='annotation_project_trigger_cloud_facts'
     ),
+
+    path(
+        'project/<uuid:project_id>/trigger-character-audit/',
+        annotation_views.trigger_character_audit_view,
+        name='annotation_project_trigger_character_audit'
+    ),
+    path(
+        'project/<uuid:project_id>/trigger-local-metrics/',
+        annotation_views.trigger_local_metrics_view,
+        name='annotation_project_trigger_local_metrics'
+    ),
 ]

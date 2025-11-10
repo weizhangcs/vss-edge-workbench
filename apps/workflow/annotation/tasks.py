@@ -1,6 +1,10 @@
 # 文件路径: apps/workflow/tasks/annotation_tasks.py
 import json
 import logging
+import csv
+import io
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 from celery import shared_task
@@ -10,8 +14,11 @@ from django.core.files.base import ContentFile
 from visify_ssw.celery import app as celery_app
 
 from ..models import AnnotationProject, AnnotationJob
+from ..common.baseJob import BaseJob
 from .services.modeling.script_modeler import ScriptModeler
 from .services.cloud_api import CloudApiService
+from .services.audit_service import L1AuditService
+from .services.metrics_service import CharacterMetricsCalculator
 
 # 获取一个日志记录器实例
 logger = logging.getLogger(__name__)
@@ -539,3 +546,78 @@ def continue_cloud_facts_task(project_id: str, characters_to_analyze: list):
         on_complete_task_name='workflow.trigger_rag_deployment_task',  #
         on_complete_kwargs={}
     )
+
+
+@shared_task
+def trigger_character_audit_task(project_id: str):
+    """
+    (已重构)
+    Celery 任务触发器。
+    所有复杂的业务逻辑都已移至 L1AuditService。
+    """
+    logger.info(f"Task trigger_character_audit_task received for project_id: {project_id}")
+    try:
+        # 初始化服务 (这会获取 project)
+        service = L1AuditService(project_id=project_id)
+
+        # 执行主方法
+        service.generate_audit_report()
+
+    except Exception as e:
+        # 捕获在服务中可能发生的任何错误 (例如 Project.DoesNotExist)
+        logger.error(f"L1 审计任务失败 (Project ID: {project_id}): {e}", exc_info=True)
+
+
+@shared_task
+def calculate_local_metrics_task(project_id: str):
+    """
+    (新) 在本地计算角色矩阵。
+    读取 'final_blueprint_file'，运行计算器，
+    并保存到 'local_metrics_result_file'。
+    """
+    logger.info(f"开始为 project {project_id} 本地计算角色矩阵...")
+    try:
+        project = AnnotationProject.objects.get(id=project_id)
+    except AnnotationProject.DoesNotExist:
+        logger.error(f"Task: Project {project_id} not found.")
+        return
+
+    # 1. 确保蓝图文件存在
+    if not project.final_blueprint_file:
+        logger.error(f"Task: Project {project_id} 没有 final_blueprint_file，无法计算矩阵。")
+        return
+
+    try:
+        # [!!! 修复从这里开始 !!!]
+
+        # 1. 以 'rb' (read binary) 模式打开文件
+        with project.final_blueprint_file.open('rb') as f:
+            # 2. 读取原始 bytes
+            blueprint_bytes = f.read()
+
+        # 3. 将 bytes 解码为 string
+        blueprint_str = blueprint_bytes.decode('utf-8')
+
+        # 4. 将 string 加载为 JSON
+        blueprint_data = json.loads(blueprint_str)
+
+        # [!!! 修复到这里结束 !!!]
+
+        # 5. 运行计算器 (Code 2)
+        calculator = CharacterMetricsCalculator()
+        report_data = calculator.execute(blueprint_data)
+
+        # 6. 将结果 (字典) 转换回 JSON 字符串
+        report_json_str = json.dumps(report_data, ensure_ascii=False, indent=2)
+        file_name = f"local_metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+        # 7. 保存到新字段
+        project.local_metrics_result_file.save(
+            file_name,
+            ContentFile(report_json_str.encode('utf-8')),
+            save=True
+        )
+        logger.info(f"Project {project_id} 的本地角色矩阵已成功计算并保存。")
+
+    except Exception as e:
+        logger.error(f"为 {project_id} 计算本地角色矩阵时失败: {e}", exc_info=True)

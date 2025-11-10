@@ -13,11 +13,13 @@ from django.contrib import admin
 
 from ..models import AnnotationJob, AnnotationProject, TranscodingJob
 from .tasks import (
+    trigger_character_audit_task,
     generate_narrative_blueprint_task,
     export_l2_output_task,
     start_cloud_pipeline_task,
     start_cloud_metrics_task,
-    continue_cloud_facts_task
+    continue_cloud_facts_task,
+    calculate_local_metrics_task
 )
 from .forms import CharacterSelectionForm  #
 
@@ -217,8 +219,8 @@ def reasoning_workflow_view(request, project_id):
     if project.cloud_reasoning_status == 'WAITING_FOR_SELECTION':
         metrics_data = None
         try:
-            if project.cloud_metrics_result_file and project.cloud_metrics_result_file.path:
-                with project.cloud_metrics_result_file.open('r') as f:
+            if project.local_metrics_result_file and project.local_metrics_result_file.path:
+                with project.local_metrics_result_file.open('r') as f:
                     metrics_data = json.load(f)
             else:
                 messages.error(request, "状态错误：项目处于等待选择状态，但找不到“角色矩阵”产出文件。")
@@ -288,8 +290,8 @@ def trigger_cloud_facts_view(request, project_id):
     #    这部分逻辑与 reasoning_workflow_view 中的逻辑一致
     metrics_data = None
     try:
-        if project.cloud_metrics_result_file and project.cloud_metrics_result_file.path:
-            with project.cloud_metrics_result_file.open('r') as f:
+        if project.local_metrics_result_file and project.local_metrics_result_file.path:
+            with project.local_metrics_result_file.open('r') as f:
                 metrics_data = json.load(f)
         else:
             # 如果文件丢失，这是个严重错误
@@ -314,3 +316,35 @@ def trigger_cloud_facts_view(request, project_id):
         messages.error(request, f"表单提交无效: {form.errors.as_text()}")  #
 
     return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
+
+def trigger_character_audit_view(request, project_id):
+    """
+    (新) 触发 L1 角色名和指标审计的后台任务。
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    # 启动 Celery 任务
+    trigger_character_audit_task.delay(project_id=str(project.id))
+
+    messages.success(request, f"已启动为项目《{project.name}》生成角色审计报告的后台任务。请稍后刷新查看。")
+
+    # 重定向回 L1 Tab
+    return redirect(reverse('admin:workflow_annotationproject_tab_l1', args=[project.id]))
+
+def trigger_local_metrics_view(request, project_id):
+    """
+    (新) 触发本地角色矩阵计算的后台任务。
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    if not project.final_blueprint_file:
+        messages.error(request, "错误：叙事蓝图 (JSON) 文件不存在，无法计算矩阵。")
+        return redirect(reverse('admin:workflow_annotationproject_tab_l3', args=[project.id]))
+
+    # 启动 Celery 任务
+    calculate_local_metrics_task.delay(project_id=str(project.id))
+
+    messages.success(request, f"已启动为项目《{project.name}》计算本地角色矩阵的任务。请稍后刷新。")
+
+    # 重定向回 L3 Tab
+    return redirect(reverse('admin:workflow_annotationproject_tab_l3', args=[project.id]))
