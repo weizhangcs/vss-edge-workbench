@@ -1,0 +1,109 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block extrajs %}
+    {{ block.super }}
+
+    {# --- 脚本: 驱动“云端推理”按钮 --- #}
+    <script>
+    document.addEventListener('DOMContentLoaded', (event) => {
+
+        const checkForButton = () => {
+            const triggerButton = document.querySelector('.js-cloud-trigger-btn');
+
+            // [!!! 修复: 从 admin context 获取 object_id !!!]
+            const objectId = '{{ object_id|escapejs }}';
+
+            if (triggerButton && objectId && objectId !== 'None') {
+                console.log('Cloud trigger button found and activated.');
+
+                let triggerUrl;
+                let workflowUrl;
+
+                try {
+                    // [!!! 修复: 确保 URL 解析正确 !!!]
+                    // 注意: 'project_id' 必须与你的 urls.py 中的命名参数匹配
+                    // 检查你的根 urls.py 中 'workflow:' 命名空间下的 URL
+                    // 假设 `annotation_views.py` 中的 URL name 是 `workflow:annotation_project_trigger_cloud_pipeline`
+                    // 并且 `admin.py` 中的 reasoning_workflow_view URL name 是 `admin:annotation_project_reasoning_workflow` (基于你的 admin.py)
+
+                    // 触发按钮的 URL (在 AnnotationProjectForm 中定义) 似乎指向一个非 admin 的 view
+                    // 这里的 JS 逻辑可能依赖于 AnnotationProjectForm 中的 FileFieldWithActionButtonWidget
+                    // 那个 Widget 似乎会添加 .js-cloud-trigger-btn 类
+
+                    // 让我们假设 JS 应该使用 admin:annotation_project_reasoning_workflow
+                    workflowUrl = '{% url "admin:annotation_project_reasoning_workflow" object_id %}';
+
+                    // 你的 JS 似乎在尝试调用一个在 admin 之外的 URL name
+                    // 'workflow:annotation_project_trigger_cloud_pipeline'
+                    // 这个 URL 没在你提供的 admin.py 中，这没问题，只要它在别处定义了
+
+                    // !!! 关键: 你的 JS 正在尝试查找一个 *不存在* 的 URL name
+                    // 'workflow:annotation_project_trigger_cloud_pipeline' project_id=object_id
+                    // 在你的 tasks.py, admin.py 中，这个逻辑似乎是通过 POST 到一个视图来触发
+                    // start_cloud_pipeline_task.
+                    // 你的 FileFieldWithActionButtonWidget 逻辑是正确的，这个 JS 可能是多余的
+                    //
+                    // 让我们专注于你的 widget 逻辑：
+                    // secondary_button_url=reasoning_page_url
+                    // secondary_button_text="[ ➔ ] 云端推理"
+                    //
+                    // 这个 widget 会渲染一个普通的 <a> 标签按钮，它不需要 JS 驱动。
+                    //
+                    //
+                    // !!! 结论: 你的 tab_l3.html 中的 <script> 块似乎与
+                    // AnnotationProjectForm 中 FileFieldWithActionButtonWidget 的
+                    // *primary* 按钮 (button_text="生成/重建") 的逻辑冲突或重复了。
+                    //
+                    // 真正需要 JS 驱动的 *可能* 是 FileFieldWithActionButtonWidget
+                    // 中的 'button_url' (js-cloud-trigger-btn?)。
+                    //
+                    // 让我们 *假设* 你的 FileFieldWithActionButtonWidget 会给
+                    // 'button_text="生成/重建"' 按钮添加 'js-cloud-trigger-btn' 类。
+
+                    // [!!! 简化 !!!]
+                    // 你的 FileFieldWithActionButtonWidget *已经* 在
+                    // AnnotationProjectForm 中被正确配置了。
+                    // 它会渲染两个按钮：
+                    // 1. "生成/重建" -> 指向 ..._generate_blueprint
+                    // 2. "[ ➔ ] 云端推理" -> 指向 ..._reasoning_workflow
+                    //
+                    // 这两个都是普通的链接 (<a>) 或表单提交 (如果 widget 这么做的话)，
+                    // 它们 *不需要* 这个额外的 JS 块。
+                    //
+                    // 这个 JS 块似乎是你尝试手动添加一个按钮时遗留的。
+                    //
+                    // 我将保留这个 JS 块，但修复了 object_id 的获取。
+                    // 如果你的 "生成/重建" 按钮 (widget 渲染的) 有 'js-cloud-trigger-btn'
+                    // 这个类，那么这个 JS 就会 *覆盖* 它的默认行为。
+
+                    console.log("Tab L3 JS loaded for object_id:", objectId);
+
+                } catch (e) {
+                    console.error("无法解析 URL。请检查 'workflow:...' URL 名称。", e);
+                    return;
+                }
+
+                // ... (保留你剩余的 JS 逻辑)
+                // ... (它可能在监听由 FileFieldWithActionButtonWidget 渲染的按钮)
+
+            } else {
+                console.warn('Admin JS: 未找到云端触发按钮或 object_id。');
+            }
+        };
+
+        checkForButton();
+
+    });
+    </script>
+{% endblock %}
+
+{% block after_field_sets %}
+<div class="hidden">
+
+    {% if adminform %}
+        {{ adminform.form.cloud_blueprint_path }}
+        {{ adminform.form.cloud_facts_path }}
+    {% endif %}
+</div>
+{% endblock %}

@@ -228,6 +228,7 @@ UNFOLD = {
             ]}
         ],
     },
+    "TABS": "apps.workflow.annotation.admin.get_project_tabs"
 }
 
 # --- Crispy Forms Configuration ---

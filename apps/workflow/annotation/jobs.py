@@ -9,6 +9,7 @@ from django_fsm import FSMField, transition
 
 from ..common.baseJob import BaseJob
 from apps.media_assets.models import Media
+from unfold.admin import StackedInline
 
 # 定义一个临时的存储位置，如果需要更复杂的权限控制可以替换
 fs = FileSystemStorage(location='/app/media_root')
@@ -18,8 +19,6 @@ def get_l1_output_upload_path(instance, filename):
   为L1产出物生成动态路径，并包含'annotation/l1_exports'前缀。
   """
   return f'annotation/{instance.project.id}/l1_exports/{instance.id}_{filename}'
-
-
 
 class AnnotationJob(BaseJob):
     """
@@ -58,7 +57,7 @@ class AnnotationJob(BaseJob):
 
     label_studio_task_id = models.IntegerField(blank=True, null=True, verbose_name="Label Studio 任务ID")
 
-    # --- 新增：存储L1产出物 ---
+
     l1_output_file = models.FileField(
         storage=fs,
         upload_to=get_l1_output_upload_path,
@@ -83,7 +82,15 @@ class AnnotationJob(BaseJob):
         """
         pass
 
-    @transition(field='status', source=BaseJob.STATUS.PROCESSING, target=BaseJob.STATUS.COMPLETED)
+    @transition(
+        field='status',
+        source=[
+            BaseJob.STATUS.PROCESSING,
+            BaseJob.STATUS.REVISING,
+            BaseJob.STATUS.ERROR,
+        ],
+        target=BaseJob.STATUS.COMPLETED
+    )
     def complete_annotation(self):
         """
         完成标注任务。
@@ -115,3 +122,5 @@ class AnnotationJob(BaseJob):
         verbose_name = "标注任务"
         verbose_name_plural = verbose_name
         ordering = ['-created']
+
+

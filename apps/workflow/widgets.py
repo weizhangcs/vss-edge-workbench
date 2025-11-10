@@ -39,7 +39,7 @@ class FileFieldWithActionButtonWidget(UnfoldAdminFileFieldWidget):
                 "href": self.secondary_button_url,
                 "content": self.secondary_button_text,
                 "variant": self.secondary_button_variant,
-                "attrs": {"class": "ml-2 js-cloud-trigger-btn"}  # <--- 在这里添加 class
+                "attrs": {"class": "ml-2 js-cloud-trigger-btn"} # <-- [!!!] 在这里添加
             }
             secondary_button_html = render_to_string("admin/components/_action_button.html", secondary_button_context)
 
