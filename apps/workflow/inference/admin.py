@@ -6,7 +6,7 @@ from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
 
 from .projects import InferenceProject
-from apps.workflow.annotation.forms import CharacterSelectionForm
+from .forms import CharacterSelectionForm
 
 logger = logging.getLogger(__name__)
 

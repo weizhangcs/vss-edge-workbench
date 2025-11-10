@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 
 from .projects import InferenceProject
-from apps.workflow.annotation.forms import CharacterSelectionForm
+from .forms import CharacterSelectionForm
 from .tasks import (
     start_cloud_pipeline_task,
     start_cloud_metrics_task,

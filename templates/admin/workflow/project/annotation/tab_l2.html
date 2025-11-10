@@ -4,12 +4,12 @@
 
 {# --- 2.2 渲染 L2 资产列表 --- #}
 <fieldset class="module aligned mt-6">
-    <h2 class="text-xl font-semibold mb-4">资产列表 (L2/L3 场景/语义标注)</h2>
+    <h2 class="text-xl font-semibold mb-4">子任务列表： 场景标注</h2>
 
     {# L2 过滤器 #}
     <div class="mb-4 p-4 bg-gray-50 rounded-md border">
         <div class="flex items-center space-x-4">
-            <strong class="text-sm font-medium">按 L2/L3 状态过滤:</strong>
+            <strong class="text-sm font-medium">按子任务状态过滤: </strong>
             <a href="?page={{ l1_page_obj.number }}{% if l1_active_filter %}&l1_status={{ l1_active_filter }}{% endif %}" class="text-sm px-2 py-1 rounded-md {% if not l2l3_active_filter %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">全部</a>
             {% for status, display in status_choices %}
                 <a href="?l2l3_status={{ status }}&page={{ l1_page_obj.number }}{% if l1_active_filter %}&l1_status={{ l1_active_filter }}{% endif %}" class="text-sm px-2 py-1 rounded-md {% if l2l3_active_filter == status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">{{ display }}</a>
@@ -24,7 +24,7 @@
             <tr>
                 <th class="py-2 px-4 border-b border-r">序号</th>
                 <th class="py-2 px-4 border-b border-r">资产标题</th>
-                <th class="py-2 px-4 border-b border-r font-medium">L2/L3 状态</th>
+                <th class="py-2 px-4 border-b border-r font-medium">状态</th>
                 <th class="py-2 px-4 border-b border-r font-medium">创建时间</th>
                 <th class="py-2 px-4 border-b border-r font-medium">更新时间</th>
                 <th class="py-2 px-4 border-b">操作</th>
@@ -42,7 +42,7 @@
                     <td class="py-2 px-4 border-b">
                     <div class="flex items-center space-x-2">
                         {% if item.l2l3_job %}
-                        <a href="{% url 'workflow:annotation_job_start_l2l3' item.l2l3_job.id %}" class="button" target="_blank">▶️ 进入语义标注</a>
+                        <a href="{% url 'workflow:annotation_job_start_l2l3' item.l2l3_job.id %}" class="button" target="_blank">▶️ 进入场景标注</a>
                         {% endif %}
                     </div>
                     </td>

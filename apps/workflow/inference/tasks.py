@@ -13,7 +13,7 @@ from visify_ssw.celery import app as celery_app
 # [!!! 修复 1: 导入正确的模型 !!!]
 from .projects import InferenceProject
 from apps.workflow.models import AnnotationProject
-from apps.workflow.annotation.services.cloud_api import CloudApiService  # (假设 CloudApiService 在 annotation app 中)
+from .services.cloud_api import CloudApiService  # (假设 CloudApiService 在 annotation app 中)
 
 logger = logging.getLogger(__name__)
 

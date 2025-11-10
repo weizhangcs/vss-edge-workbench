@@ -4,12 +4,12 @@
 
 {# --- 1.2 渲染 L1 资产列表 (使用 tab_l1_view 准备的数据) --- #}
 <fieldset class="module aligned mt-6">
-    <h2 class="text-xl font-semibold mb-4">资产列表 (L1 角色/字幕标注)</h2>
+    <h2 class="text-xl font-semibold mb-4">子任务列表： 角色标注</h2>
 
     {# L1 过滤器 #}
     <div class="mb-4 p-4 bg-gray-50 rounded-md border">
         <div class="flex items-center space-x-4">
-            <strong class="text-sm font-medium">按 L1 状态过滤:</strong>
+            <strong class="text-sm font-medium">按子任务状态过滤: </strong>
             <a href="?l2l3_page={{ l2l3_page_obj.number }}{% if l2l3_active_filter %}&l2l3_status={{ l2l3_active_filter }}{% endif %}" class="text-sm px-2 py-1 rounded-md {% if not l1_active_filter %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">全部</a>
             {% for status, display in status_choices %}
                 <a href="?l1_status={{ status }}&l2l3_page={{ l2l3_page_obj.number }}{% if l2l3_active_filter %}&l2l3_status={{ l2l3_active_filter }}{% endif %}" class="text-sm px-2 py-1 rounded-md {% if l1_active_filter == status %}bg-blue-600 text-white{% else %}bg-gray-200 hover:bg-gray-300{% endif %}">{{ display }}</a>
@@ -24,7 +24,7 @@
             <tr>
                 <th class="py-2 px-4 border-b border-r">序号</th>
                 <th class="py-2 px-4 border-b border-r">资产标题</th>
-                <th class="py-2 px-4 border-b border-r font-medium">L1 状态</th>
+                <th class="py-2 px-4 border-b border-r font-medium">状态</th>
                 <th class="py-2 px-4 border-b border-r font-medium">创建时间</th>
                 <th class="py-2 px-4 border-b border-r font-medium">更新时间</th>
                 <th class="py-2 px-4 border-b">操作</th>
@@ -43,9 +43,9 @@
                     <div class="flex items-center space-x-2">
                         {% if item.l1_job %}
                             {% if item.l1_job.l1_output_file %}
-                                <a href="{% url 'workflow:annotation_job_revise_l1' item.l1_job.id %}" class="button" target="_blank">🔁 修订字幕标注</a>
+                                <a href="{% url 'workflow:annotation_job_revise_l1' item.l1_job.id %}" class="button" target="_blank">🔁 修订角色标注</a>
                             {% else %}
-                                <a href="{% url 'workflow:annotation_job_start_l1' item.l1_job.id %}" class="button" target="_blank">▶️ 开始字幕标注</a>
+                                <a href="{% url 'workflow:annotation_job_start_l1' item.l1_job.id %}" class="button" target="_blank">▶️ 开始角色标注</a>
                             {% endif %}
                         {% endif %}
                     </div>
