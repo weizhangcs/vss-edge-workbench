@@ -1,0 +1,125 @@
+{% extends "admin/base.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block content %}
+<div class="p-8">
+    {# --- 1. 面包屑导航 (保持不变) --- #}
+    <nav class="flex mb-4" aria-label="Breadcrumb">
+        <ol role="list" class="flex items-center space-x-4">
+            <li>
+                <div class="flex items-center">
+                    <svg class="h-5 w-5 flex-shrink-0 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" /></svg>
+                    <a href="{% url opts|admin_urlname:'change' original.pk|admin_urlquote %}" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">{{ original|truncatewords:"18" }}</a>
+                </div>
+            </li>
+            </ol>
+    </nav>
+
+    <h1 class="text-2xl font-semibold text-gray-900 mt-2 mb-6">{{ title }}</h1>
+
+    <fieldset class="module aligned">
+        <div class="p-4 border rounded-md shadow-sm bg-white">
+
+          {% with project=original %}
+
+            {# --- [!!! 修复 1: 检查 'project.annotation_project.final_blueprint_file' !!!] --- #}
+            {% if project.cloud_reasoning_status == 'PENDING' and project.annotation_project.final_blueprint_file %}
+              <div class="p-4 bg-gray-50 rounded-lg border">
+                <h3 class="font-semibold text-lg mb-3">启动云端推理</h3>
+                <p class="mb-4 text-sm text-gray-700">叙事蓝图已生成。请选择一种模式启动云端推理工作流。</p>
+
+                <div class="mb-4 border-b pb-4">
+                  <h4 class="font-medium text-md mb-2">模式 B：自动流水线 (推荐)</h4>
+                  <form action="{% url 'workflow:inference_trigger_cloud_pipeline' project.pk %}" method="POST" class="flex items-center space-x-2">
+                    {% csrf_token %}
+                    <label for="top_n_input" class="text-sm font-medium">Top N 角色:</label>
+                    <input type="number" name="top_n" id="top_n_input" value="3" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <button type="submit" class="button variant-primary">
+                      启动自动流水线 (模式 B)
+                    </button>
+                  </form>
+                </div>
+
+                <div>
+                  <h4 class="font-medium text-md mb-2">模式 A：手动选择角色</h4>
+                  <form action="{% url 'workflow:inference_trigger_cloud_metrics' project.pk %}" method="POST">
+                    {% csrf_token %}
+                    <button type="submit" class="button variant-default">
+                      1. 开始分析角色矩阵 (模式 A)
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+            {# --- 状态 2: WAITING_FOR_SELECTION (保持不变) --- #}
+            {% elif project.cloud_reasoning_status == 'WAITING_FOR_SELECTION' %}
+              <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-300">
+                <h3 class="font-semibold text-lg mb-3 text-yellow-800">⏸️ 需要您操作</h3>
+                <p class="mb-4 text-sm text-yellow-700">“角色矩阵”分析已完成。请从下方选择要继续分析的角色，然后点击“继续”。</p>
+
+                {% if character_selection_form %}
+                  <form action="{% url 'workflow:inference_trigger_cloud_facts' project.pk %}" method="POST">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ character_selection_form.characters.label }}:
+                      </label>
+                      <div class="mt-2 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {% for checkbox in character_selection_form.characters %}
+                           <label for="{{ checkbox.id_for_label }}" class="flex items-center space-x-2 p-2 border rounded-md hover:bg-gray-50 cursor-pointer">
+                               {{ checkbox.tag }}
+                               <span class="font-medium">{{ checkbox.choice_label }}</span>
+                           </label>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    <div class="mt-4 border-t pt-4 flex justify-start">
+                        <button type="submit" class="button variant-primary">
+                          2. 继续识别所选角色属性
+                        </button>
+                    </div>
+                  </form>
+                {% endif %}
+              </div>
+
+            {# --- 状态 3, 4, 5 (COMPLETED, FAILED, PROCESSING) (保持不变) --- #}
+            {% elif project.cloud_reasoning_status == 'COMPLETED' %}
+                {% elif project.cloud_reasoning_status == 'FAILED' %}
+                {% elif project.cloud_reasoning_status != 'PENDING' %}
+                {# --- [!!! 修复 2: 检查 'project.annotation_project.final_blueprint_file' !!!] --- #}
+            {% elif not project.annotation_project.final_blueprint_file %}
+              <div class="p-4 bg-gray-50 rounded-lg border">
+                <p class="text-sm text-gray-600">
+                  无法启动：本地 `final_blueprint_file` 未找到。
+                  请返回项目详情页，确保“最终叙事蓝图(JSON)”已成功生成。
+                </p>
+              </div>
+            {% endif %}
+
+          {% endwith %}
+        </div>
+    </fieldset>
+</div>
+{% endblock %}
+
+
+{% block extrajs %}
+    {{ block.super }}
+    <script>
+    (function() {
+        const currentStatus = "{{ original.cloud_reasoning_status|escapejs }}";
+        const processingStates = [
+            'BLUEPRINT_UPLOADING',
+            'METRICS_RUNNING',
+            'FACTS_RUNNING',
+            'PIPELINE_RUNNING',
+            'RAG_DEPLOYING'
+        ];
+        if (processingStates.includes(currentStatus)) {
+            setTimeout(() => {
+                window.location.reload();
+            }, 5000);
+        }
+    })();
+    </script>
+{% endblock %}

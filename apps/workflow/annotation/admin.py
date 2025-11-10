@@ -51,7 +51,7 @@ def get_project_tabs(request: HttpRequest) -> list[dict]:
                 "active": current_view_name == "admin:workflow_annotationproject_tab_l2"
             },
             {
-                "title": "第三步：推理建模",
+                "title": "第三步：建模产出",
                 "link": reverse("admin:workflow_annotationproject_tab_l3", args=[object_id]),
                 "active": current_view_name == "admin:workflow_annotationproject_tab_l3"
             },
@@ -121,17 +121,11 @@ class AnnotationProjectForm(forms.ModelForm):
                 if project.label_studio_export_file:
                     blueprint_button_url = reverse('workflow:annotation_project_generate_blueprint', args=[project.pk])
 
-                reasoning_page_url = None
-                if project.final_blueprint_file:
-                    reasoning_page_url = reverse('workflow:annotation_project_reasoning_workflow', args=[project.pk])
 
                 self.fields['final_blueprint_file'].widget = FileFieldWithActionButtonWidget(
                     button_url=blueprint_button_url,
                     button_text="生成/重建",
                     button_variant="primary",
-                    secondary_button_url=reasoning_page_url,
-                    secondary_button_text="[ ➔ ] 云端推理",
-                    secondary_button_variant="default"
                 )
 
             # L3 按钮 2: "计算矩阵" (本地)
@@ -159,7 +153,7 @@ class AnnotationJobAdmin(ModelAdmin):
 @admin.register(AnnotationProject)
 class AnnotationProjectAdmin(ModelAdmin):
     form = AnnotationProjectForm
-    list_display = ('name', 'asset', 'status', 'blueprint_status', 'cloud_reasoning_status', 'created', 'modified',
+    list_display = ('name', 'asset', 'status', 'blueprint_status', 'created', 'modified',
                     'view_project_details')
     list_display_links = ('name',)
     autocomplete_fields = ['asset']
@@ -196,20 +190,10 @@ class AnnotationProjectAdmin(ModelAdmin):
 
     # L3 fieldsets (保持不变)
     tab_l3_fieldsets = base_fieldsets + (
-        ('推理建模产出物', {
+        ('建模产出物', {
             'fields': (
                 # 第 1 行 (1:1): 角色矩阵产出 | 最终叙事蓝图
-                ('final_blueprint_file', 'local_metrics_result_file'),
-
-                # 第 2 行 (1:1): 云端推理状态 | 角色属性产出
-                ('cloud_reasoning_status', 'cloud_facts_result_file'),
-
-                # 第 3 行 (1:1): RAG 部署报告 | 云端蓝图路径 (隐藏)
-                ('cloud_rag_report_file', 'cloud_blueprint_path'),
-
-                # 第 4 行 (1:1): 云端角色属性路径 (隐藏)
-                ('cloud_facts_path',),
-
+                ('blueprint_status','final_blueprint_file', 'local_metrics_result_file'),
                 # 'blueprint_validation_report' 已被隐藏 (移除)
             )
         }),
@@ -222,8 +206,6 @@ class AnnotationProjectAdmin(ModelAdmin):
     # readonly_fields 保持不变 (我们在上一轮已修复)
     readonly_fields = (
         'label_studio_project_id',
-        'cloud_reasoning_status', 'cloud_metrics_result_file',
-        'cloud_facts_result_file', 'cloud_rag_report_file', 'cloud_blueprint_path', 'cloud_facts_path'
     )
 
     # ... (所有 get_urls, add_view, change_view, tab_..._view, changelist_view,
@@ -246,11 +228,6 @@ class AnnotationProjectAdmin(ModelAdmin):
                 '<uuid:object_id>/change/tab-l3/',
                 self.admin_site.admin_view(self.tab_l3_view),
                 name='workflow_annotationproject_tab_l3'
-            ),
-            path(
-                '<uuid:object_id>/reasoning-workflow/',
-                self.admin_site.admin_view(annotation_views.reasoning_workflow_view),
-                name='annotation_project_reasoning_workflow'
             ),
         ]
         return custom_urls + urls
@@ -346,11 +323,11 @@ class AnnotationProjectAdmin(ModelAdmin):
         )
 
     def tab_l3_view(self, request, object_id, extra_context=None):
+        """
+        渲染 L3 Tab ("建模产出")。
+        (不再需要 'object_id' 注入)
+        """
         context = extra_context or {}
-        context.update({
-            'object_id': object_id
-        })
-
         self.fieldsets = self.tab_l3_fieldsets
         self.change_form_template = "admin/workflow/project/annotation/tab_l3.html"
 
@@ -379,3 +356,16 @@ class AnnotationProjectAdmin(ModelAdmin):
         if asset_id:
             return queryset.filter(asset_id=asset_id)
         return queryset
+
+    # [!!! 步骤 2.8: 添加一个链接到新项目的快捷方式 !!!]
+    @admin.display(description="L3 推理")
+    def go_to_inference(self, obj):
+        try:
+            # (假设你已有名为 'inference_project' 的 related_name)
+            inference_proj = obj.inference_project
+            url = reverse('admin:inference_inferenceproject_change', args=[inference_proj.pk])
+            return format_html('<a href="{}" class="button">进入推理</a>', url)
+        except Exception:
+            # (你可以在这里添加一个 "创建推理项目" 的按钮)
+            # (这需要一个新的视图，暂时先不实现)
+            return "尚未创建"

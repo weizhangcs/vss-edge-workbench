@@ -18,3 +18,6 @@ from .annotation.admin import *
 
 # --- 从新的 delivery 子包导入 ---
 from .delivery.admin import *
+
+# --- 从新的 inference 子包导入 ---
+from .inference.admin import *

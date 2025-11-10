@@ -2,26 +2,21 @@
 
 import json
 import logging
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from django.urls import reverse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
-from django.contrib import admin
 
 from ..models import AnnotationJob, AnnotationProject, TranscodingJob
 from .tasks import (
     trigger_character_audit_task,
     generate_narrative_blueprint_task,
     export_l2_output_task,
-    start_cloud_pipeline_task,
-    start_cloud_metrics_task,
-    continue_cloud_facts_task,
     calculate_local_metrics_task
 )
-from .forms import CharacterSelectionForm  #
 
 logger = logging.getLogger(__name__)
 
@@ -193,129 +188,6 @@ def generate_blueprint_view(request, project_id):
         messages.success(request, f"已启动为项目《{project.name}》生成叙事蓝图的后台任务。")
 
     return redirect(reverse('admin:workflow_annotationproject_change', args=[project.id]))
-
-
-# =============================================================================
-# ---
-# =============================================================================
-
-def reasoning_workflow_view(request, project_id):
-    """
-
-    """
-    project = get_object_or_404(AnnotationProject, pk=project_id)
-
-    context = {
-        **admin.site.each_context(request),  #
-        "opts": AnnotationProject._meta,
-        "original": project,
-        "title": f"云端推理工作流: {project.name}",
-        "has_view_permission": True,
-        "has_change_permission": True,  #
-        "character_selection_form": None,
-    }
-
-    #
-    if project.cloud_reasoning_status == 'WAITING_FOR_SELECTION':
-        metrics_data = None
-        try:
-            if project.local_metrics_result_file and project.local_metrics_result_file.path:
-                with project.local_metrics_result_file.open('r') as f:
-                    metrics_data = json.load(f)
-            else:
-                messages.error(request, "状态错误：项目处于等待选择状态，但找不到“角色矩阵”产出文件。")
-        except Exception as e:
-            logger.error(f"无法加载或解析 metrics_result_file (项目: {project.id}): {e}", exc_info=True)
-            messages.error(request, f"无法加载角色矩阵文件: {e}")
-
-        if metrics_data:
-            #
-            context['character_selection_form'] = CharacterSelectionForm(metrics_data=metrics_data)
-
-    return render(request, 'admin/workflow/project/annotation/reasoning_workflow.html', context)
-
-
-def trigger_cloud_pipeline_view(request, project_id):
-    """
-
-    """
-    project = get_object_or_404(AnnotationProject, id=project_id)
-
-    if not project.final_blueprint_file:
-        messages.error(request, "错误：缺少 叙事蓝图(Blueprint) 产出物，无法启动。")
-        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-    #
-    top_n = request.POST.get('top_n', 3)
-    try:
-        top_n = int(top_n)
-    except ValueError:
-        top_n = 3
-
-    start_cloud_pipeline_task.delay(project_id=str(project.id), top_n=top_n)
-    messages.success(request, f"成功启动“自动推理流水线 (Top {top_n})”任务。")
-
-    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-
-def trigger_cloud_metrics_view(request, project_id):
-    """
-
-    """
-    project = get_object_or_404(AnnotationProject, id=project_id)
-
-    if not project.final_blueprint_file:
-        messages.error(request, "错误：缺少 叙事蓝图(Blueprint) 产出物，无法启动。")
-        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-    start_cloud_metrics_task.delay(project_id=str(project.id))
-    messages.success(request, "成功启动“分析角色矩阵”任务，请稍后刷新。")
-
-    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-
-def trigger_cloud_facts_view(request, project_id):
-    """
-    处理来自 "reasoning_workflow" 页面的角色选择表单提交。
-    """
-    project = get_object_or_404(AnnotationProject, id=project_id)  #
-
-    if request.method != 'POST':  #
-        messages.error(request, "无效的请求方法。")
-        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-    # --- [!!! 修复开始 !!!] ---
-
-    # 1. 必须在验证表单前加载 metrics_data，以填充 'choices'
-    #    这部分逻辑与 reasoning_workflow_view 中的逻辑一致
-    metrics_data = None
-    try:
-        if project.local_metrics_result_file and project.local_metrics_result_file.path:
-            with project.local_metrics_result_file.open('r') as f:
-                metrics_data = json.load(f)
-        else:
-            # 如果文件丢失，这是个严重错误
-            messages.error(request, "致命错误：找不到用于验证的 角色矩阵(metrics) 文件。")
-            return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-    except Exception as e:
-        logger.error(f"无法加载或解析 metrics_result_file (项目: {project.id}): {e}", exc_info=True)
-        messages.error(request, f"无法加载角色矩阵文件: {e}")
-        return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
-
-    # 2. 将 metrics_data 和 request.POST 一起传入表单构造函数
-    form = CharacterSelectionForm(request.POST, metrics_data=metrics_data)  #
-
-    # --- [!!! 修复结束 !!!] ---
-
-    if form.is_valid():  #
-        selected_characters = form.cleaned_data['characters']
-        continue_cloud_facts_task.delay(project_id=str(project.id), characters_to_analyze=selected_characters)  #
-        messages.success(request, f"已为 {len(selected_characters)} 个角色启动“识别角色属性”任务。")
-    else:
-        # 这个错误消息现在会正确显示在页面上
-        messages.error(request, f"表单提交无效: {form.errors.as_text()}")  #
-
-    return redirect(reverse('workflow:annotation_project_reasoning_workflow', args=[project.id]))
 
 def trigger_character_audit_view(request, project_id):
     """

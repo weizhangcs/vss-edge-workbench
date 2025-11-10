@@ -130,6 +130,7 @@ CELERY_IMPORTS = (
     'apps.workflow.transcoding.tasks',
     'apps.workflow.delivery.tasks',
     'apps.workflow.annotation.tasks',
+    'apps.workflow.inference.tasks',
 )
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
@@ -195,32 +196,48 @@ UNFOLD = {
                     },
                 ]
             },
-            # 2. 创建“分发工作流”一级菜单
+            # 2. 创建“标注工作流”一级菜单
+            {
+                'title': '建模工作流',  # <-- (来自你的澄清 1)
+                'separator': True,
+                'items': [
+                    # [!!! 步骤 2.3: 更新二级菜单 !!!]
+                    {
+                        'title': '标注项目',  # <-- (来自你的澄清 2)
+                        'icon': 'rate_review',
+                        'link': reverse_lazy('admin:workflow_annotationproject_changelist')
+                    },
+                    {
+                        'title': '推理项目',  # <-- (来自你的澄清 2)
+                        'icon': 'insights',  # (新图标)
+                        'link': reverse_lazy('admin:workflow_inferenceproject_changelist')  # (新 URL)
+                    },
+                ]
+            },
+            {
+                'title': '创作工作流',
+                'separator': True,
+                'items': [
+                    {
+                        'title': '解说词项目',
+                        'icon': 'send',  # 一个表示发送/分发的图标
+                        'link': reverse_lazy('admin:workflow_deliveryjob_changelist')
+                    },
+                ]
+            },
+            # 4. 创建“分发工作流”一级菜单
             {
                 'title': '分发工作流',
                 'separator': True,
                 'items': [
                     {
                         'title': '分发任务',
-                        'icon': 'send', # 一个表示发送/分发的图标
+                        'icon': 'send',  # 一个表示发送/分发的图标
                         'link': reverse_lazy('admin:workflow_deliveryjob_changelist')
                     },
                 ]
             },
-            # 3. 创建“标注工作流”一级菜单
-            {
-                'title': '标注工作流',
-                'separator': True, # 与其他一级菜单分隔
-                'items': [
-                    {
-                        'title': '标注项目',
-                        'icon': 'rate_review',
-                        'link': reverse_lazy('admin:workflow_annotationproject_changelist')
-                    },
-                    # 未来可以添加“标注任务”等子菜单
-                ]
-            },
-            # 4. 更新“系统设置”菜单，移除“编码配置”
+            # 5. 更新“系统设置”菜单，移除“编码配置”
             {'title': '系统设置', 'separator': True, 'items': [
                 {'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'), 'icon': 'hub'},
                 {'title': '用户', 'link': reverse_lazy('admin:auth_user_changelist'), 'icon': 'group'},

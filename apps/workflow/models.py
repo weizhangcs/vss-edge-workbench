@@ -10,3 +10,6 @@ from .annotation.jobs import AnnotationJob
 
 # --- 从新的 delivery 子包导入 ---
 from .delivery.jobs import DeliveryJob
+
+# --- 从 inference 子包导入 ---
+from .inference.projects import InferenceProject

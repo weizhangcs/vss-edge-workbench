@@ -36,32 +36,6 @@ urlpatterns = [
         annotation_views.generate_blueprint_view,
         name='annotation_project_generate_blueprint'
     ),
-
-    # ---
-    #
-    path(
-        'project/<uuid:project_id>/reasoning-workflow/',
-        annotation_views.reasoning_workflow_view,
-        name='annotation_project_reasoning_workflow'
-    ),
-    # ---
-
-    path(
-        'project/<uuid:project_id>/trigger-cloud-pipeline/',
-        annotation_views.trigger_cloud_pipeline_view,
-        name='annotation_project_trigger_cloud_pipeline'
-    ),
-    path(
-        'project/<uuid:project_id>/trigger-cloud-metrics/',
-        annotation_views.trigger_cloud_metrics_view,
-        name='annotation_project_trigger_cloud_metrics'
-    ),
-    path(
-        'project/<uuid:project_id>/trigger-cloud-facts/',
-        annotation_views.trigger_cloud_facts_view,
-        name='annotation_project_trigger_cloud_facts'
-    ),
-
     path(
         'project/<uuid:project_id>/trigger-character-audit/',
         annotation_views.trigger_character_audit_view,
