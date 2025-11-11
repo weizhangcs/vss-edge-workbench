@@ -32,6 +32,8 @@ def get_project_tabs(request: HttpRequest) -> list[dict]:
 
     # 获取当前请求的 view name，用于判断哪个 tab 应该 active
     current_view_name = request.resolver_match.view_name
+
+    # 默认的 change_view name
     default_change_view_name = "admin:workflow_annotationproject_change"
 
     tab_items = []

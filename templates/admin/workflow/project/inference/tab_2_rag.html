@@ -1,0 +1,23 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block after_field_sets %}
+
+{# --- 1. RAG 部署触发器 --- #}
+<fieldset class="module aligned mt-6">
+    <h2 class="text-xl font-semibold mb-4">第二步：更新知识图谱 (RAG)</h2>
+
+    {% csrf_token %} <div class="p-4 border rounded-md shadow-sm bg-white">
+        <p class="text-sm text-gray-700 mb-4">
+          点击下方按钮，系统将自动查找最新*已完成*的“角色属性识别”任务，并将其产出物部署到 RAG 知识图谱。
+        </p>
+
+        <button type="submit" class="button variant-primary">
+          启动“知识图谱部署”任务
+        </button>
+    </div>
+
+</fieldset>
+
+{# --- 2. RAG 子任务列表 (保持不变) --- #}
+{% endblock %}

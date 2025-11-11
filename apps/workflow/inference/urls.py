@@ -3,23 +3,22 @@
 from django.urls import path
 from . import views as inference_views
 
-# app_name 在主 urls.py 中定义为 'workflow'
-# 所以这些 URL name 将会是 'workflow:inference_trigger_...'
-
 urlpatterns = [
-    path(
-        'project/<uuid:project_id>/trigger-cloud-pipeline/',
-        inference_views.trigger_cloud_pipeline_view,
-        name='inference_trigger_cloud_pipeline' # (新 URL name)
-    ),
-    path(
-        'project/<uuid:project_id>/trigger-cloud-metrics/',
-        inference_views.trigger_cloud_metrics_view,
-        name='inference_trigger_cloud_metrics' # (新 URL name)
-    ),
+    # [!!! 步骤 4: 移除过时的 URL !!!]
+    # path('.../trigger-cloud-pipeline/', ...), (已删除)
+    # path('.../trigger-cloud-metrics/', ...), (已删除)
+
+    # (保持 FACTS URL 不变，它现在创建 Job)
     path(
         'project/<uuid:project_id>/trigger-cloud-facts/',
         inference_views.trigger_cloud_facts_view,
-        name='inference_trigger_cloud_facts' # (新 URL name)
+        name='inference_trigger_cloud_facts'
+    ),
+
+    # [!!! 步骤 5: 添加新的 RAG URL !!!]
+    path(
+        'project/<uuid:project_id>/trigger-rag-deployment/',
+        inference_views.trigger_rag_deployment_view,
+        name='inference_trigger_rag_deployment'
     ),
 ]
