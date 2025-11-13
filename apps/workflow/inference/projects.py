@@ -31,6 +31,10 @@ class InferenceProject(BaseProject):
         verbose_name="关联的标注项目"
     )
 
+    # [新增] 用于存储最新的 RAG 部署报告中的场景计数
+    # 供 Creative 工作流的 GENERATE_NARRATION 任务使用
+    rag_total_scene_count = models.IntegerField(blank=True, null=True, verbose_name="RAG 语料场景总数")
+
     class Meta:
         verbose_name = "L3 推理项目"
         verbose_name_plural = "L3 推理项目"

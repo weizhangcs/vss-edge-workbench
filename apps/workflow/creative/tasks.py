@@ -36,6 +36,16 @@ def start_narration_task(project_id: str, **kwargs):
         if not inference_project:
             raise ValueError("找不到关联的 InferenceProject")
 
+        # [新增逻辑] 获取 total_scene_count
+        total_scene_count = inference_project.rag_total_scene_count
+        if total_scene_count is None:
+            logger.warning(
+                f"[CreativeTask 1] InferenceProject {inference_project.id} 缺少 rag_total_scene_count。任务中止。")
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
+            # 必须等待 RAG 部署任务成功
+            raise ValueError("找不到 total_scene_count，请先运行 RAG 部署任务。")
+
         # [!!!] --- 核心修正：您是正确的 --- [!!!]
         # 我们不需要查找旧的 RAG Job。
         # RAG 部署时使用的 series_id 就是 str(inference_project.id)。
@@ -74,6 +84,7 @@ def start_narration_task(project_id: str, **kwargs):
         payload = {
             "series_name": series_name,
             "series_id": series_id_to_use,  # [!!!] 使用我们推导出的 ID
+            "total_scene_count": total_scene_count,  # [新增] 必需字段
             "service_params": job.input_params.get("service_params", {})
         }
 
