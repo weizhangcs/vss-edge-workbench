@@ -13,3 +13,6 @@ from .delivery.jobs import DeliveryJob
 
 # --- 从 inference 子包导入 ---
 from .inference.projects import InferenceProject
+
+from .creative.projects import CreativeProject
+from .creative.jobs import CreativeJob

@@ -131,6 +131,7 @@ CELERY_IMPORTS = (
     'apps.workflow.delivery.tasks',
     'apps.workflow.annotation.tasks',
     'apps.workflow.inference.tasks',
+    'apps.workflow.creative.tasks'
 )
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
@@ -219,9 +220,9 @@ UNFOLD = {
                 'separator': True,
                 'items': [
                     {
-                        'title': '解说词项目',
+                        'title': '影视解说二创',
                         'icon': 'send',  # 一个表示发送/分发的图标
-                        'link': reverse_lazy('admin:workflow_deliveryjob_changelist')
+                        'link': reverse_lazy('admin:workflow_creativeproject_changelist')
                     },
                 ]
             },

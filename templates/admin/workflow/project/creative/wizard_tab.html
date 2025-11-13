@@ -1,0 +1,32 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block after_field_sets %}
+
+<fieldset class="module aligned mt-6">
+    <h2 class="text-xl font-semibold mb-4">创作工作流</h2>
+
+    <form action="{{ form_url }}" method="POST">
+        {% csrf_token %}
+        <div class="p-4 border rounded-md shadow-sm bg-white">
+            <p class="text-sm text-gray-700 mb-4">
+              {{ help_text }}
+            </p>
+
+            <button type="submit"
+                   class="button variant-primary {% if trigger_disabled %}disabled{% endif %}"
+                   {% if trigger_disabled %}disabled{% endif %}>
+              {{ trigger_text }}
+            </button>
+
+            {% if original.status == 'COMPLETED' %}
+            <a href="#" class="button variant-default ml-2 disabled" aria-disabled="true" onclick="return false;">
+              🎬 (本地合成全片 - 待实现)
+            </a>
+            {% endif %}
+        </div>
+    </form>
+</fieldset>
+
+{# --- 2. 显示关联的子任务 (Inline) --- #}
+{% endblock %}

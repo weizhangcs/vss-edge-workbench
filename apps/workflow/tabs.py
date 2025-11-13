@@ -6,6 +6,7 @@ from django.http import HttpRequest
 # 1. 从你的两个 admin 文件中导入各自的 Tab 生成器
 from .annotation.admin import get_project_tabs
 from .inference.admin import get_inference_project_tabs
+from .creative.admin import get_creative_project_tabs
 
 
 def get_global_tabs(request: HttpRequest) -> list[dict]:
@@ -19,7 +20,7 @@ def get_global_tabs(request: HttpRequest) -> list[dict]:
     # 2. 调用两个函数
     annotation_tabs = get_project_tabs(request)
     inference_tabs = get_inference_project_tabs(request)
-
+    creative_tabs = get_creative_project_tabs(request)
     # 3. 返回组合后的列表
     # (Unfold 将收到: [{"models": ...}, {"models": ...}])
-    return annotation_tabs + inference_tabs
+    return annotation_tabs + inference_tabs + creative_tabs

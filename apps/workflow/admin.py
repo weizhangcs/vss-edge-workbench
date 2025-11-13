@@ -21,3 +21,6 @@ from .delivery.admin import *
 
 # --- 从新的 inference 子包导入 ---
 from .inference.admin import *
+
+# --- 从新的 creative 子包导入 ---
+from .creative.admin import *

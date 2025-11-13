@@ -139,3 +139,24 @@ class CloudApiService:
         except requests.exceptions.RequestException as e:
             logger.error(f"Cloud API: 下载结果失败: {e}", exc_info=True)
             return False, None
+
+    def download_general_file(self, file_path: str) -> Tuple[bool, Optional[bytes]]:
+        """
+        (新) 调用“通用资产下载接口” [cite: 216]
+        用于下载 dubbing_script.json 中列出的 .wav 文件 [cite: 288]
+        """
+        # 构建带查询参数的 URL [cite: 219]
+        download_url = f"{self.base_url}/api/v1/files/download/"
+        headers = self._get_auth_headers()
+        params = {'path': file_path}
+
+        try:
+            response = requests.get(download_url, headers=headers, params=params, timeout=300)
+            response.raise_for_status()
+
+            logger.info(f"Cloud API: 成功下载通用文件: {file_path}")
+            return True, response.content
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Cloud API: 下载通用文件失败: {file_path}。错误: {e}", exc_info=True)
+            return False, None
