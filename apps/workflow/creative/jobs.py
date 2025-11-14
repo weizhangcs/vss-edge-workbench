@@ -15,7 +15,8 @@ class CreativeJob(BaseJob):
     TYPE = Choices(
         ('GENERATE_NARRATION', '生成解说词'),  # 您的步骤 1
         ('GENERATE_AUDIO', '生成配音'),  # 您的步骤 2
-        ('GENERATE_EDIT_SCRIPT', '生成剪辑脚本')  # 您的步骤 3
+        ('GENERATE_EDIT_SCRIPT', '生成剪辑脚本'),  # 您的步骤 3
+        ('SYNTHESIS', '视频合成')
     )
 
     project = models.ForeignKey(

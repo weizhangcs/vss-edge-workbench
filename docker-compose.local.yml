@@ -4,7 +4,7 @@
 services:
   db:
     ports:
-      - "8543:5432"
+      - "5432:5432"
 
   web:
     image: ghcr.io/weizhangcs/vss-workbench:dev

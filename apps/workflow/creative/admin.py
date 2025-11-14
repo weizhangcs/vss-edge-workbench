@@ -27,7 +27,7 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
     if object_id:
         tab_items = [
             {
-                "title": "步骤 1：解说词",
+                "title": "步骤 1：解说词推理",
                 "link": reverse("admin:workflow_creativeproject_tab_1_narration", args=[object_id]),
                 "active": current_view_name in [
                     "admin:workflow_creativeproject_tab_1_narration",
@@ -35,14 +35,19 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
                 ]
             },
             {
-                "title": "步骤 2：配音",
+                "title": "步骤 2：配音推理",
                 "link": reverse("admin:workflow_creativeproject_tab_2_audio", args=[object_id]),
                 "active": current_view_name == "admin:workflow_creativeproject_tab_2_audio"
             },
             {
-                "title": "步骤 3：剪辑合成",
+                "title": "步骤 3：剪辑脚本推理",
                 "link": reverse("admin:workflow_creativeproject_tab_3_edit", args=[object_id]),
                 "active": current_view_name == "admin:workflow_creativeproject_tab_3_edit"
+            },
+            {  # [新增]
+                "title": "步骤 4：视频合成",
+                "link": reverse("admin:workflow_creativeproject_tab_4_synthesis", args=[object_id]),
+                "active": current_view_name == "admin:workflow_creativeproject_tab_4_synthesis"
             },
         ]
     return [{"models": [{"name": "workflow.creativeproject", "detail": True}], "items": tab_items}]
@@ -77,6 +82,15 @@ class CreativeProjectAdmin(ModelAdmin):
     tab_3_fieldsets = base_fieldsets + (
         ('步骤 3 产出物', {'fields': ('edit_script_file',)}),
     )
+    tab_4_fieldsets = base_fieldsets + (
+        ('步骤 4 产出物', {'fields': ('final_video_file',)}),
+    )
+
+    # [!!! 核心修正] 确保新的状态字段被添加
+    readonly_fields = ('asset', 'status', 'narration_script_file',
+                       'dubbing_script_file', 'edit_script_file', 'final_video_file')  # [新增]
+
+    inlines = [CreativeJobInline]
 
     # [!!!] --- 核心修正 --- [!!!]
     readonly_fields = ('asset', 'status', 'narration_script_file',
@@ -92,6 +106,8 @@ class CreativeProjectAdmin(ModelAdmin):
             return self.tab_2_fieldsets
         if view_name == "admin:workflow_creativeproject_tab_3_edit":
             return self.tab_3_fieldsets
+        if view_name == "admin:workflow_creativeproject_tab_4_synthesis":  # [新增]
+            return self.tab_4_fieldsets
         return self.tab_1_fieldsets
 
     # [!!! 修正 !!!]
@@ -109,6 +125,9 @@ class CreativeProjectAdmin(ModelAdmin):
                  name=get_url_name('tab_2_audio')),
             path('<uuid:object_id>/change/tab-3-edit/', self.admin_site.admin_view(self.tab_3_edit_view),
                  name=get_url_name('tab_3_edit')),
+            path('<uuid:object_id>/change/tab-4-synthesis/', self.admin_site.admin_view(self.tab_4_synthesis_view),
+                 # [新增]
+                 name=get_url_name('tab_4_synthesis')),
         ]
         return custom_urls + urls
 
@@ -127,6 +146,7 @@ class CreativeProjectAdmin(ModelAdmin):
         # [!!! 修正 !!!]
         # form_url 现在指向我们新创建的、在 'workflow' 命名空间下的 URL
         form_url = reverse('workflow:creative_trigger_narration', args=[project.pk])
+        #form_url = reverse('admin:workflow_creativeproject_tab_1_narration', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成解说词 (步骤 1)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.PENDING
@@ -141,6 +161,7 @@ class CreativeProjectAdmin(ModelAdmin):
         project = self.get_object(request, object_id)
 
         form_url = reverse('workflow:creative_trigger_audio', args=[project.pk])
+        #form_url = reverse('admin:workflow_creativeproject_tab_2_audio', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成配音 (步骤 2)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
@@ -154,10 +175,24 @@ class CreativeProjectAdmin(ModelAdmin):
         project = self.get_object(request, object_id)
 
         form_url = reverse('workflow:creative_trigger_edit', args=[project.pk])
+        #form_url = reverse('admin:workflow_creativeproject_tab_3_edit', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成剪辑脚本 (步骤 3)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.AUDIO_COMPLETED
         context['help_text'] = "当配音生成后，点击此按钮生成剪辑脚本。（此功能待您在云端实现）"
+
+        self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
+        return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
+
+    def tab_4_synthesis_view(self, request, object_id, extra_context=None):  # [新增]
+        context = extra_context or {}
+        project = self.get_object(request, object_id)
+
+        form_url = reverse('workflow:creative_trigger_synthesis', args=[project.pk])
+
+        context['trigger_text'] = "▶️ 开始视频合成 (步骤 4)"
+        context['trigger_disabled'] = project.status != CreativeProject.STATUS.EDIT_COMPLETED
+        context['help_text'] = "当剪辑脚本生成后，点击此按钮调用本地 FFmpeg 进程完成音视频合成。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -179,6 +214,8 @@ class CreativeProjectAdmin(ModelAdmin):
                 return redirect('workflow:creative_trigger_audio', project_id=object_id)
             if 'tab-3-edit' in request.path:
                 return redirect('workflow:creative_trigger_edit', project_id=object_id)
+            if 'tab-4-synthesis' in request.path:  # [新增]
+                return redirect('workflow:creative_trigger_synthesis', project_id=object_id)
 
         # 否则，让 Django/Unfold 正常处理 (GET 请求或 "Save" POST)
         return super().changeform_view(request, object_id, form_url, extra_context)

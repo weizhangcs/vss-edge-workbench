@@ -25,4 +25,9 @@ urlpatterns = [
         creative_views.trigger_edit_view,
         name='creative_trigger_edit'
     ),
+    path(
+        'project/<uuid:project_id>/trigger-synthesis/',
+        creative_views.trigger_synthesis_view,
+        name='creative_trigger_synthesis'
+    ),
 ]

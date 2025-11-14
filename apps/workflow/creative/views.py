@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 
 from .projects import CreativeProject
-from .tasks import start_narration_task, start_audio_task, start_edit_script_task
+from .tasks import start_narration_task, start_audio_task, start_edit_script_task, start_synthesis_task
 
 logger = logging.getLogger(__name__)
 
@@ -52,3 +52,17 @@ def trigger_edit_view(request, project_id):
         messages.warning(request, "必须先完成配音才能生成剪辑脚本。")
 
     return redirect(reverse('admin:workflow_creativeproject_tab_3_edit', args=[project_id]))
+
+def trigger_synthesis_view(request, project_id): # [新增]
+    """
+    (新) 步骤 4：触发“视频合成”任务
+    """
+    project = get_object_or_404(CreativeProject, id=project_id)
+    if project.status == CreativeProject.STATUS.EDIT_COMPLETED:
+        # 直接调用 task，在 task 中会执行同步的 SynthesisService.execute()
+        start_synthesis_task.delay(project_id=str(project.id))
+        messages.success(request, "步骤 4：视频合成任务已启动。")
+    else:
+        messages.warning(request, "必须先完成剪辑脚本才能进行视频合成。")
+
+    return redirect(reverse('admin:workflow_creativeproject_tab_4_synthesis', args=[project_id]))

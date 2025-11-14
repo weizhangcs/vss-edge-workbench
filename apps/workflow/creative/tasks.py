@@ -7,6 +7,8 @@ from pathlib import Path
 from celery import shared_task
 from django.core.files.base import ContentFile
 from django.conf import settings
+from django.db.models import Q
+from django_fsm import TransitionNotAllowed
 
 from .projects import CreativeProject, get_creative_output_upload_path
 from .jobs import CreativeJob
@@ -14,6 +16,7 @@ from apps.workflow.inference.services.cloud_api import CloudApiService
 from apps.workflow.inference.tasks import poll_cloud_task_status # 重用轮询器
 from apps.workflow.common.baseJob import BaseJob
 from apps.workflow.inference.projects import InferenceJob
+from .services.synthesis_service import SynthesisService
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,11 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
     try:
         job = CreativeJob.objects.get(id=job_id)
         project = job.project
+
+        # [新增幂等性检查] 如果任务已完成，则直接安全退出
+        if job.status == BaseJob.STATUS.COMPLETED:
+            logger.warning(f"[CreativeFinal 1] Job {job_id} 状态已是 COMPLETED，跳过重复执行。")
+            return
     except CreativeJob.DoesNotExist:
         logger.error(f"[CreativeFinal 1] 找不到 CreativeJob {job_id}，任务终止。")
         return
@@ -244,6 +252,11 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
     try:
         job = CreativeJob.objects.get(id=job_id)
         project = job.project
+
+        # [新增幂等性检查] 如果任务已完成，则直接安全退出
+        if job.status == BaseJob.STATUS.COMPLETED:
+            logger.warning(f"[CreativeFinal 2] Job {job_id} 状态已是 COMPLETED，跳过重复执行。")
+            return
     except CreativeJob.DoesNotExist:
         logger.error(f"[CreativeFinal 2] 找不到 CreativeJob {job_id}，任务终止。")
         return
@@ -429,6 +442,11 @@ def finalize_edit_script_task(job_id: str, cloud_task_data: dict, **kwargs):
     try:
         job = CreativeJob.objects.get(id=job_id)
         project = job.project
+
+        # [新增幂等性检查] 如果任务已完成，则直接安全退出
+        if job.status == BaseJob.STATUS.COMPLETED:
+            logger.warning(f"[CreativeFinal 3] Job {job_id} 状态已是 COMPLETED，跳过重复执行。")
+            return
     except CreativeJob.DoesNotExist:
         logger.error(f"[CreativeFinal 3] 找不到 CreativeJob {job_id}，任务终止。")
         return
@@ -448,15 +466,130 @@ def finalize_edit_script_task(job_id: str, cloud_task_data: dict, **kwargs):
         # 2. 保存到步骤 3 的产出物字段
         project.edit_script_file.save(f"editing_script_{job.id}.json", ContentFile(content), save=False)
 
-        job.complete();
+        job.complete()
         job.save()
-        project.status = CreativeProject.STATUS.COMPLETED  # [!!!] 整个工作流完成
+
+        # [修改] 更新项目状态为 EDIT_COMPLETED
+        project.status = CreativeProject.STATUS.EDIT_COMPLETED
         project.save()
 
         logger.info(f"[CreativeFinal 3] 步骤 3 (剪辑脚本) 已成功 (Project: {project.id})！")
-        logger.info(f"--- [Creative Workflow COMPLETE] (Project: {project.id}) ---")
 
     except Exception as e:
         logger.error(f"[CreativeFinal 3] Job {job_id} 最终化处理失败: {e}", exc_info=True)
+        if job: job.fail(); job.save()
+        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+
+
+@shared_task(name="apps.workflow.creative.tasks.start_synthesis_task")
+def start_synthesis_task(project_id: str, **kwargs):
+    """
+    (新 V3 - 修复版)
+    由 finalize_edit_script_task 触发，开始您的“步骤 4：视频合成”。
+    这是一个本地任务，不调用云端 API。
+    """
+    job = None
+    project = None
+    try:
+        project = CreativeProject.objects.get(id=project_id)
+
+        if project.status != CreativeProject.STATUS.EDIT_COMPLETED:
+            logger.warning(f"[CreativeTask 4] 项目状态不是 EDIT_COMPLETED，任务中止。")
+            return
+
+        # 1. 检查所有必需的本地输入文件 (略)
+
+        # 2. 创建 Job
+        job = CreativeJob.objects.create(
+            project=project,
+            job_type=CreativeJob.TYPE.SYNTHESIS,
+            status=BaseJob.STATUS.PENDING
+        )
+        job.start()
+        job.save() # <--- [关键修复] 必须保存，将状态从 PENDING 切换为 PROCESSING
+
+        # 3. 设置项目状态
+        project.status = CreativeProject.STATUS.SYNTHESIS_RUNNING
+        project.save()
+
+        # 4. 准备 SynthesisService 的输入路径 (略)
+        editing_script_path = Path(project.edit_script_file.path)
+        blueprint_path = Path(project.inference_project.annotation_project.final_blueprint_file.path)
+
+        # 5. 确定本地音频和视频的基目录 (略)
+        audio_job = CreativeJob.objects.filter(
+            Q(project=project) & Q(job_type=CreativeJob.TYPE.GENERATE_AUDIO) & Q(status=BaseJob.STATUS.COMPLETED)
+        ).order_by('-modified').first()
+        if not audio_job:
+            raise RuntimeError("找不到已完成的 GENERATE_AUDIO 任务来确定音频基目录。")
+        local_audio_base_dir = Path(settings.MEDIA_ROOT) / get_creative_output_upload_path(project,
+                                                                                           f"audio_{audio_job.id}")
+        source_videos_dir = Path(settings.MEDIA_ROOT) / 'source_files' / str(project.asset.id) / 'media'
+
+        # 6. 实例化并执行 SynthesisService
+        service = SynthesisService(project_id=str(project.id))
+
+        final_output_path = service.execute(
+            editing_script_path=editing_script_path,
+            blueprint_path=blueprint_path,
+            local_audio_base_dir=local_audio_base_dir,
+            source_videos_dir=source_videos_dir,
+            asset_id=str(project.asset.id)
+        )
+
+        # 任务成功，立即调用回调函数 (不使用 Celery 链式调用，因为这是同步操作)
+        finalize_synthesis_task(job_id=str(job.id), final_output_path=str(final_output_path))
+
+    except Exception as e:
+        logger.error(f"[CreativeTask 4] 无法启动/执行合成任务 (Project: {project_id}): {e}", exc_info=True)
+        if job: job.fail(); job.save()
+        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        return
+
+
+@shared_task(name="apps.workflow.creative.tasks.finalize_synthesis_task")
+def finalize_synthesis_task(job_id: str, final_output_path: str, **kwargs):
+    """
+    (新 V3 - FSM健壮性修复)
+    “步骤 4：视频合成”成功后的回调。
+    保存最终视频文件并完成项目。
+    """
+    job = None
+    project = None
+    try:
+        job = CreativeJob.objects.get(id=job_id)
+        project = job.project
+
+        # [新增幂等性检查] 如果任务已完成，则直接安全退出
+        if job.status == BaseJob.STATUS.COMPLETED:
+            logger.warning(f"[CreativeFinal 4] Job {job_id} 状态已是 COMPLETED，跳过重复执行。")
+            return
+
+        # 1. 保存最终产出物
+        output_path = Path(final_output_path)
+        if not output_path.is_file():
+            raise FileNotFoundError(f"最终合成文件未找到: {final_output_path}")
+
+        with output_path.open('rb') as f:
+            project.final_video_file.save(output_path.name, ContentFile(f.read()), save=False)
+
+        # 2. 标记任务和项目为完成
+        try:
+            job.complete() # <-- 如果状态是 PENDING，会抛出 TransitionNotAllowed
+            job.save()
+        except TransitionNotAllowed as e:
+            # [关键修复] 捕获 FSM 转换错误，强制更新状态
+            logger.warning(f"[CreativeFinal 4] FSM 转换失败 ({job.status})。强制标记为 COMPLETED。")
+            job.status = BaseJob.STATUS.COMPLETED
+            job.save(update_fields=['status'])
+
+        project.status = CreativeProject.STATUS.COMPLETED
+        project.save()
+
+        logger.info(f"[CreativeFinal 4] 步骤 4 (合成) 已成功 (Project: {project.id})！")
+        logger.info(f"--- [Creative Workflow COMPLETE] (Project: {project.id}) ---")
+
+    except Exception as e:
+        logger.error(f"[CreativeFinal 4] Job {job_id} 最终化处理失败: {e}", exc_info=True)
         if job: job.fail(); job.save()
         if project: project.status = CreativeProject.STATUS.FAILED; project.save()

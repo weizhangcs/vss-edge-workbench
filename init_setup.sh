@@ -45,6 +45,12 @@ echo "Please provide initial settings for the instance:"
 read -p "Enter the Public Endpoint URL (e.g., http://your_server_ip or https://your_domain): " PUBLIC_ENDPOINT
 sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE"
 
+# --- [新增] Cloud API Configuration ---
+echo "--- Cloud API Configuration (Required for L3 Inference/L4 Creative) ---"
+read -p "Enter CLOUD_API_BASE_URL (e.g., http://35.180.253.185:8000): " CLOUD_API_BASE_URL
+read -p "Enter CLOUD_INSTANCE_ID: " CLOUD_INSTANCE_ID
+read -p "Enter CLOUD_API_KEY: " CLOUD_API_KEY
+
 # --- Other prompts ---
 read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL
 read -s -p "Enter the initial Django superuser password: " DJANGO_SUPERUSER_PASSWORD
@@ -70,6 +76,7 @@ chmod 600 "$ENV_FILE"
 echo "Creating necessary directories..."
 for dir in "${REQUIRED_DIRS[@]}"; do
     mkdir -p "$dir"
+    chmod -R 777 "$dir"
 done
 
 echo "------------------------------------------------"

@@ -55,45 +55,43 @@ def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_ta
     try:
         service = CloudApiService()
         success, data = service.get_task_status(cloud_task_id)
-
-        if not success:
-            logger.warning(
-                f"[PollTask] 查询云端任务 {cloud_task_id} 失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。")
-            self.retry()
-            return
-
-        status = data.get("status")
-
-        if status == "COMPLETED":
-            logger.info(
-                f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 已完成。触发后续任务: {on_complete_task_name}")
-            celery_app.send_task(on_complete_task_name, kwargs={
-                'job_id': job_id,
-                'cloud_task_data': data,
-                **on_complete_kwargs
-            })
-
-        elif status in ["PENDING", "RUNNING"]:
-            logger.info(
-                f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 仍在 {status} 状态，将在 {self.default_retry_delay} 秒后重试。")
-            self.retry()
-
-        elif status == "FAILED":
-            logger.error(f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 报告失败。")
-            job.fail()
-            # 可以保存错误信息: job.error_message = json.dumps(data)
-            job.save()
-
-        else:
-            logger.error(
-                f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 返回未知状态: '{status}'。")
-            job.fail()
-            job.save()
-
     except Exception as e:
-        logger.error(f"[PollTask] 轮询过程发生异常: {e}", exc_info=True)
-        # 不要在这里 fail job，让 retry 机制处理网络波动等问题
+        logger.error(f"[PollTask] API查询失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。", exc_info=True)
+        self.retry()  # 仅在API/网络错误时重试
+        return
+
+    if not success:
+        logger.warning(
+            f"[PollTask] 查询云端任务 {cloud_task_id} 失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。")
         self.retry()
+        return
+
+    status = data.get("status")
+
+    if status == "COMPLETED":
+        logger.info(f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 已完成。触发后续任务: {on_complete_task_name}")
+        celery_app.send_task(on_complete_task_name, kwargs={
+            'job_id': job_id,
+            'cloud_task_data': data,
+            **on_complete_kwargs
+        })
+
+    elif status in ["PENDING", "RUNNING"]:
+        # 成功的查询，但任务未完成，进入下一次重试。
+        logger.info(
+            f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 仍在 {status} 状态，将在 {self.default_retry_delay} 秒后重试。")
+        self.retry()  # 再次发起重试，程序会在此处停止并抛出 Retry 异常。
+
+    elif status == "FAILED":
+        logger.error(f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 报告失败。")
+        job.fail()
+        job.save()
+
+    else:
+        logger.error(
+            f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 返回未知状态: '{status}'。")
+        job.fail()
+        job.save()
 
 
 @shared_task(name="apps.workflow.inference.tasks.start_rag_deployment_task")

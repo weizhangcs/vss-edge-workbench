@@ -36,6 +36,8 @@ class CreativeProject(BaseProject):
         ('AUDIO_RUNNING', '配音生成中'),
         ('AUDIO_COMPLETED', '配音已完成'),
         ('EDIT_RUNNING', '剪辑脚本生成中'),
+        ('EDIT_COMPLETED', '剪辑脚本已完成'),
+        ('SYNTHESIS_RUNNING', '合成中'),
         ('COMPLETED', '所有产出物已完成'),
         ('FAILED', '失败')
     )
@@ -75,6 +77,11 @@ class CreativeProject(BaseProject):
         blank=True, null=True, verbose_name="剪辑脚本 (JSON/EDL)"
     )
 
+    # --- [新增] 步骤 4 产出物 ---
+    final_video_file = models.FileField(
+        upload_to=get_creative_output_upload_path,
+        blank=True, null=True, verbose_name="最终合成视频 (MP4)"
+    )
     # (省略 FSM transition 方法，它们将在 tasks.py 中被调用)
 
     def save(self, *args, **kwargs):
