@@ -5,8 +5,10 @@ from django.contrib import admin, messages
 from django.http import HttpRequest
 from django.urls import path, reverse
 from django.shortcuts import redirect
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
+from .forms import CreativeProjectForm
 from .projects import CreativeProject
 from .jobs import CreativeJob
 
@@ -17,10 +19,20 @@ logger = logging.getLogger(__name__)
 
 # [!!!] 确保这个函数存在，并被 tabs.py 导入
 def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
-    object_id = None
-    if request.resolver_match and "object_id" in request.resolver_match.kwargs:
-        object_id = request.resolver_match.kwargs.get("object_id")
-    current_view_name = request.resolver_match.view_name
+    resolver = request.resolver_match
+
+    # [关键修复] 1. 防御性检查：确保视图匹配正确的模型
+    if not (resolver and
+            resolver.view_name.startswith("admin:workflow_creativeproject_")):
+        return []
+
+    # 2. 检查是否有 object_id (确认是 detail view)
+    object_id = resolver.kwargs.get("object_id")
+    if not object_id:
+        return []
+
+    # 此时 object_id 保证为 UUID 字符串，且视图匹配 CreativeProject
+    current_view_name = resolver.view_name
     default_change_view_name = "admin:workflow_creativeproject_change"
 
     tab_items = []
@@ -65,7 +77,9 @@ class CreativeJobInline(TabularInline):
 
 @admin.register(CreativeProject)
 class CreativeProjectAdmin(ModelAdmin):
-    list_display = ('name', 'inference_project', 'asset', 'status', 'created')
+    form = CreativeProjectForm
+
+    list_display = ('name', 'asset', 'status', 'created', 'view_current_project', 'go_to_inference')
     search_fields = ('name', 'inference_project__name', 'asset__title')
     autocomplete_fields = ['inference_project']
 
@@ -87,14 +101,7 @@ class CreativeProjectAdmin(ModelAdmin):
     )
 
     # [!!! 核心修正] 确保新的状态字段被添加
-    readonly_fields = ('asset', 'status', 'narration_script_file',
-                       'dubbing_script_file', 'edit_script_file', 'final_video_file')  # [新增]
-
-    inlines = [CreativeJobInline]
-
-    # [!!!] --- 核心修正 --- [!!!]
-    readonly_fields = ('asset', 'status', 'narration_script_file',
-                       'dubbing_script_file', 'edit_script_file')  # <--- 字段重命名
+    readonly_fields = ('asset', 'status')  # [新增]
 
     inlines = [CreativeJobInline]
 
@@ -161,11 +168,10 @@ class CreativeProjectAdmin(ModelAdmin):
         project = self.get_object(request, object_id)
 
         form_url = reverse('workflow:creative_trigger_audio', args=[project.pk])
-        #form_url = reverse('admin:workflow_creativeproject_tab_2_audio', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成配音 (步骤 2)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
-        context['help_text'] = "当解说词生成后，点击此按钮开始配音。（此功能待您在云端实现）"
+        context['help_text'] = "当解说词生成后，点击此按钮开始配音。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -179,7 +185,7 @@ class CreativeProjectAdmin(ModelAdmin):
 
         context['trigger_text'] = "▶️ 生成剪辑脚本 (步骤 3)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.AUDIO_COMPLETED
-        context['help_text'] = "当配音生成后，点击此按钮生成剪辑脚本。（此功能待您在云端实现）"
+        context['help_text'] = "当配音生成后，点击此按钮生成剪辑脚本。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -220,3 +226,25 @@ class CreativeProjectAdmin(ModelAdmin):
         # 否则，让 Django/Unfold 正常处理 (GET 请求或 "Save" POST)
         return super().changeform_view(request, object_id, form_url, extra_context)
 
+# [新增方法] 提供快速进入当前项目详情页的“操作”按钮
+    @admin.display(description="操作")
+    def view_current_project(self, obj):
+        """
+        在 changelist 视图中添加一个“进入项目”的快捷按钮。
+        """
+        url = reverse('admin:workflow_creativeproject_change', args=[obj.pk])
+        return format_html('<a href="{}" class="button">进入项目</a>', url)
+
+    # [新增方法] 提供跳转到关联推理项目的导航按钮
+    @admin.display(description="关联推理项目")
+    def go_to_inference(self, obj):
+        """
+        跳转到关联的 Inference Project 详情页。
+        """
+        try:
+            inference_proj = obj.inference_project
+            # 使用 'workflow' app_label 进行跨项目导航
+            url = reverse('admin:workflow_inferenceproject_change', args=[inference_proj.pk])
+            return format_html('<a href="{}" class="button">返回推理</a>', url)
+        except Exception:
+            return "N/A"

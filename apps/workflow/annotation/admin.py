@@ -26,14 +26,21 @@ def get_project_tabs(request: HttpRequest) -> list[dict]:
     为 UNFOLD["TABS"] 设置提供动态 Tab 配置。
     此函数在 settings.py 中被引用，用于构建 AnnotationProject 的顶部 Tab 导航。
     """
-    object_id = None
-    if request.resolver_match and "object_id" in request.resolver_match.kwargs:
-        object_id = request.resolver_match.kwargs.get("object_id")
+    resolver = request.resolver_match
 
-    # 获取当前请求的 view name，用于判断哪个 tab 应该 active
-    current_view_name = request.resolver_match.view_name
+    # [关键修复] 1. 防御性检查：确保视图匹配正确的模型
+    # 检查 view_name 是否以 AnnotationProject 的 admin URL 前缀开头
+    if not (resolver and
+            resolver.view_name.startswith("admin:workflow_annotationproject_")):
+        return []
 
-    # 默认的 change_view name
+    # 2. 检查是否有 object_id (确认是 detail view)
+    object_id = resolver.kwargs.get("object_id")
+    if not object_id:
+        return []
+
+    # 此时 object_id 保证为 UUID 字符串，且视图匹配 AnnotationProject
+    current_view_name = resolver.view_name
     default_change_view_name = "admin:workflow_annotationproject_change"
 
     tab_items = []

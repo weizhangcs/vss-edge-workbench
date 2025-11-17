@@ -4,13 +4,13 @@ import requests
 from typing import Tuple, Optional
 import logging
 
+from decouple import config
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.urls import reverse
-from django.http import HttpRequest
 
-from apps.media_assets.models import Media, Asset
 from apps.workflow.models import AnnotationProject, TranscodingJob
+from apps.configuration.models import IntegrationSettings
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,24 @@ class LabelStudioService:
     """
 
     def __init__(self):
-        self.internal_ls_url = settings.LABEL_STUDIO_URL
-        self.api_token = settings.LABEL_STUDIO_ACCESS_TOKEN
+        try:
+            settings_obj = IntegrationSettings.get_solo()
+        except Exception:
+            # 数据库未就绪时的安全回退
+            settings_obj = None
+
+            # 内部 URL 保持从 .env 读取
+        self.BASE_URL = config('LABEL_STUDIO_URL', default='http://label-studio:8080')
+
+        # [CRITICAL FIX] 从数据库模型中获取 Token，如果数据库未就绪，则为 None
+        self.ACCESS_TOKEN = getattr(settings_obj, 'label_studio_access_token', None)
+
+        if not self.ACCESS_TOKEN:
+            # 如果 Token 缺失，发出警告，服务仍然可以初始化，但 API 调用会失败
+            logger.warning("Label Studio ACCESS_TOKEN 缺失。请在 [系统设置] -> [集成设置] 中配置。")
+
         self.headers = {
-            "Authorization": f"Token {self.api_token}",
+            "Authorization": f"Token {self.ACCESS_TOKEN}",
             "Content-Type": "application/json",
         }
 
@@ -36,8 +50,11 @@ class LabelStudioService:
         """
         try:
             asset = project.asset # 从 project 中获取 asset
-            admin_base_url = "http://localhost:8000" # 在容器内通信使用
-            return_to_django_url = f"{admin_base_url}{reverse('admin:media_assets_asset_changelist')}"
+            admin_base_url = config('NUXT_PUBLIC_VSS_WORKBENCH_URL', default='http://localhost:8000').rstrip('/')
+
+            # 2. 返回地址修正：返回到目标 AnnotationProject 的详情页 (change view)
+            # 目标: /admin/workflow/annotationproject/<uuid>/change/
+            return_to_django_url = f"{admin_base_url}{reverse('admin:workflow_annotationproject_tab_l2', args=[project.pk])}"
 
             label_config_xml = render_to_string('ls_templates/video.xml')
             expert_instruction_html = f"<h4>操作指南</h4><p>请根据视频内容完成标注。</p><p>完成后请返回Django后台：<a href='{return_to_django_url}'>点击这里</a></p>"
@@ -48,7 +65,7 @@ class LabelStudioService:
                 "label_config": label_config_xml
             }
 
-            project_response = requests.post(f"{self.internal_ls_url}/api/projects", json=project_payload, headers=self.headers)
+            project_response = requests.post(f"{self.BASE_URL}/api/projects", json=project_payload, headers=self.headers)
             project_response.raise_for_status()
             project_data = project_response.json()
             project_id = project_data.get("id")
@@ -82,7 +99,7 @@ class LabelStudioService:
                 # --- ↑↑↑ 查找逻辑结束 ↑↑↑ ---
 
                 task_payload = {"data": {"video_url": video_url}}
-                task_response = requests.post(f"{self.internal_ls_url}/api/projects/{project_id}/tasks", json=task_payload, headers=self.headers)
+                task_response = requests.post(f"{self.BASE_URL}/api/projects/{project_id}/tasks", json=task_payload, headers=self.headers)
 
                 if task_response.status_code == 201:
                     task_id = task_response.json().get('id')
@@ -104,7 +121,7 @@ class LabelStudioService:
         """
         try:
             logger.info(f"开始从 LS 导出 Project {ls_project_id} 的全部数据...")
-            export_url = f"{self.internal_ls_url}/api/projects/{ls_project_id}/export"
+            export_url = f"{self.BASE_URL}/api/projects/{ls_project_id}/export"
 
             # 使用 stream=True 适合处理可能的大文件
             response = requests.get(export_url, headers=self.headers, stream=True, timeout=300)  # 增加超时

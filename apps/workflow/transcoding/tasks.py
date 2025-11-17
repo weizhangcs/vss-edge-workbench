@@ -8,12 +8,42 @@ from django.core.files.base import ContentFile
 import logging
 import os
 
-from ..models import TranscodingJob, DeliveryJob
+# [修复/新增] 确保导入 TranscodingProject
+from ..models import TranscodingJob, DeliveryJob, TranscodingProject
 from ..delivery.tasks import run_delivery_job
 
 from apps.media_assets.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
+
+
+def _check_and_update_project_status(project: TranscodingProject):
+    """
+    检查给定项目下的所有转码任务状态，并更新项目的聚合状态。
+    """
+    all_jobs = project.transcoding_jobs.all()
+    total_jobs = all_jobs.count()
+
+    if total_jobs == 0:
+        return
+
+    completed_jobs = all_jobs.filter(status=TranscodingJob.STATUS.COMPLETED).count()
+    error_jobs = all_jobs.filter(status=TranscodingJob.STATUS.ERROR).count()
+
+    new_status = project.status  # 默认保持不变
+
+    if error_jobs > 0:
+        # 如果有任何任务失败，项目状态应为 FAILED
+        new_status = TranscodingProject.STATUS.FAILED
+    elif completed_jobs == total_jobs:
+        # 如果所有任务都已完成，项目状态应为 COMPLETED
+        new_status = TranscodingProject.STATUS.COMPLETED
+
+    # 只有当新状态不同于当前状态时才进行更新
+    if project.status != new_status:
+        project.status = new_status
+        project.save(update_fields=['status'])
+        logger.info(f"Transcoding Project {project.id} status successfully updated to {new_status}")
 
 
 @shared_task
@@ -22,8 +52,11 @@ def run_transcoding_job(job_id):
     (V2.2 健壮命令版)
     执行一个具体的转码任务 (TranscodingJob)。
     """
+    job = None
+    temp_output_path = None
     try:
-        job = TranscodingJob.objects.select_related('profile', 'media__asset').get(id=job_id)
+        # 优化查询以减少数据库访问
+        job = TranscodingJob.objects.select_related('project', 'profile', 'media__asset').get(id=job_id)
     except TranscodingJob.DoesNotExist:
         logger.error(f"找不到 ID 为 {job_id} 的转码任务。")
         return
@@ -40,48 +73,51 @@ def run_transcoding_job(job_id):
     temp_output_path = temp_output_dir / temp_output_filename
 
     try:
-        # --- ↓↓↓ 核心修正：采用更健壮的命令组装方式 ↓↓↓ ---
-
-        # 1. 从 profile 获取纯粹的转码参数
+        # 1. FFmpeg 命令组装
         encoding_params = job.profile.ffmpeg_command.split()
-
-        # 2. 按照 ffmpeg 的标准语法，清晰地组装命令
         command = [
             'ffmpeg',
             '-i', str(source_video_path),
-            *encoding_params,  # 使用 * 解包，将所有参数平铺到列表中
-            str(temp_output_path),  # 明确地在参数之后、-y 之前，添加输出文件路径
-            '-y'  # 覆盖输出文件
+            *encoding_params,
+            str(temp_output_path),
+            '-y'
         ]
-        # --- ↑↑↑ 修正结束 ↑↑↑ ---
 
         logger.info(f"执行转码命令: {' '.join(command)}")
         subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
         logger.info(f"FFmpeg 转码成功: {temp_output_path}")
 
+        # 2. 保存输出文件和任务完成
         with open(temp_output_path, 'rb') as f:
             job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
         logger.info(f"已将本地产出物路径保存至 job.output_file")
 
+        # 3. 触发分发任务
         delivery_job = DeliveryJob.objects.create(source_object=job)
-
-        # 2. 触发新的 delivery Celery 任务
         run_delivery_job.delay(delivery_job.id)
         logger.info(f"已为转码任务 {job.id} 创建并触发了分发任务 {delivery_job.id}")
 
-        #job.output_url = s3_url
         job.complete()
         job.save()
-        #logger.info(f"转码任务 {job_id} 成功完成！产出物URL: {s3_url}")
+
+        # [新增逻辑] 检查并更新父级项目状态
+        _check_and_update_project_status(job.project)
 
     except Exception as e:
         logger.error(f"转码任务 {job_id} 失败: {e}", exc_info=True)
         if isinstance(e, subprocess.CalledProcessError):
             logger.error(f"--- FFmpeg STDERR ---\n{e.stderr}")
-        job.fail()
-        job.save()
+
+        # 任务失败，更新状态
+        if job:
+            job.fail()
+            job.save()
+
+            # [新增逻辑] 检查并更新父级项目状态 (因为有任务失败了)
+            _check_and_update_project_status(job.project)
+
         raise e
     finally:
-        if os.path.exists(temp_output_path):
+        if temp_output_path and os.path.exists(temp_output_path):
             os.remove(temp_output_path)
             logger.info(f"已清理临时文件: {temp_output_path}")

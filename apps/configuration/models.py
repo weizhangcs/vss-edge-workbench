@@ -16,6 +16,35 @@ class IntegrationSettings(SingletonModel):
         help_text="用户首次通过 OIDC 登录时，如果其邮箱在此列表内，将自动被提升为超级管理员。每行一个邮箱地址。"
     )
 
+    label_studio_access_token = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Label Studio API Token",
+        help_text="从 Label Studio 的个人账户设置中获取 (Account Settings -> Access Tokens)"
+    )
+
+    # --- [新增字段组 1] Cloud API Settings ---
+    cloud_api_base_url = models.URLField(max_length=1024, blank=True, null=True, verbose_name="云端 API Base URL")
+    cloud_instance_id = models.CharField(max_length=255, blank=True, null=True, verbose_name="云端实例 ID")
+    cloud_api_key = models.CharField(max_length=255, blank=True, null=True, verbose_name="云端 API 密钥")
+
+
+    # --- [新增字段组 2] Storage Backend Configuration ---
+    STORAGE_BACKEND_CHOICES = (
+        ('local', '本地文件系统 (Local)'),
+        ('s3', 'AWS S3 (Cloud Storage)'),
+    )
+    storage_backend = models.CharField(max_length=10, choices=STORAGE_BACKEND_CHOICES, default='local',
+                                       verbose_name="存储后端")
+
+    aws_access_key_id = models.CharField(max_length=255, blank=True, null=True, verbose_name="AWS Access Key ID")
+    aws_secret_access_key = models.CharField(max_length=255, blank=True, null=True,
+                                             verbose_name="AWS Secret Access Key")
+    aws_storage_bucket_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="AWS Bucket Name")
+    aws_s3_region_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="AWS S3 Region Name")
+    aws_s3_custom_domain = models.URLField(max_length=1024, blank=True, null=True, verbose_name="AWS S3 Custom Domain")
+
     def clean(self):
         super().clean()
         emails = self.superuser_emails.splitlines()

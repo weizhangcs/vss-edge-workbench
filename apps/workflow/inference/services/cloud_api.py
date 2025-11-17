@@ -3,7 +3,7 @@ import requests
 import logging
 from typing import Tuple, Optional, Dict, Any
 from pathlib import Path
-from django.conf import settings
+from apps.configuration.models import IntegrationSettings
 
 logger = logging.getLogger(__name__)
 
@@ -14,21 +14,29 @@ class CloudApiService:
     """
 
     def __init__(self):
-        self.base_url = settings.CLOUD_API_BASE_URL
-        self.instance_id = settings.CLOUD_INSTANCE_ID
-        self.api_key = settings.CLOUD_API_KEY
+        # 1. 从 IntegrationSettings 模型安全地加载配置
+        try:
+            settings = IntegrationSettings.get_solo()
+        except Exception:
+            # 数据库或表未就绪时的安全回退
+            settings = None
 
-        if not self.base_url or not self.instance_id or not self.api_key:
-            logger.error("Cloud API 客户端未配置！请检查 .env 文件中的 CLOUD_API_... 变量。")
-            raise ValueError("Cloud API 客户端未正确配置。")
+        # 使用 getattr 安全获取值，并提供硬编码的回退值
+        self.BASE_URL = getattr(settings, 'cloud_api_base_url', None) or 'http://localhost:8080'
+        self.INSTANCE_ID = getattr(settings, 'cloud_instance_id', None)
+        self.API_KEY = getattr(settings, 'cloud_api_key', None)
+
+        # 2. 验证检查
+        if not self.BASE_URL or not self.INSTANCE_ID or not self.API_KEY:
+            logger.warning("CloudApiService 凭证不完整或数据库不可访问。请检查 IntegrationSettings。")
 
     def _get_auth_headers(self) -> Dict[str, str]:
         """
         [cite_start][cite: 17, 18]
         """
         return {
-            "X-Instance-ID": self.instance_id,
-            "X-Api-Key": self.api_key,
+            "X-Instance-ID": self.INSTANCE_ID,
+            "X-Api-Key": self.API_KEY,
         }
 
     def upload_file(self, local_file_path: Path) -> Tuple[bool, Optional[str]]:
@@ -39,7 +47,7 @@ class CloudApiService:
             logger.error(f"Cloud API: 无法上传，文件未找到: {local_file_path}")
             return False, "File not found"
 
-        upload_url = f"{self.base_url}/api/v1/files/upload/"
+        upload_url = f"{self.BASE_URL}/api/v1/files/upload/"
         headers = self._get_auth_headers()
 
         try:
@@ -67,7 +75,7 @@ class CloudApiService:
         """
         [cite_start]执行四步流程的 [第2步：创建] [cite: 23]
         """
-        create_url = f"{self.base_url}/api/v1/tasks/"
+        create_url = f"{self.BASE_URL}/api/v1/tasks/"
         headers = self._get_auth_headers()
         headers["Content-Type"] = "application/json"
 
@@ -98,7 +106,7 @@ class CloudApiService:
         """
         [cite_start]执行四步流程的 [第3步：轮询] [cite: 25]
         """
-        status_url = f"{self.base_url}/api/v1/tasks/{task_id}/"
+        status_url = f"{self.BASE_URL}/api/v1/tasks/{task_id}/"
         headers = self._get_auth_headers()
 
         try:
@@ -146,7 +154,7 @@ class CloudApiService:
         用于下载 dubbing_script.json 中列出的 .wav 文件 [cite: 288]
         """
         # 构建带查询参数的 URL [cite: 219]
-        download_url = f"{self.base_url}/api/v1/files/download/"
+        download_url = f"{self.BASE_URL}/api/v1/files/download/"
         headers = self._get_auth_headers()
         params = {'path': file_path}
 

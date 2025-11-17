@@ -20,18 +20,20 @@ logger = logging.getLogger(__name__)
 
 # [!!! 步骤 2: 添加新的 Tab 生成器 (复制自 annotation/admin.py) !!!]
 def get_inference_project_tabs(request: HttpRequest) -> list[dict]:
-    """
-    (新)
-    为 InferenceProject 动态生成 Tab 导航。
-    (在 settings.py 中被 "tabs" 键引用)
-    """
-    object_id = None
-    if request.resolver_match and "object_id" in request.resolver_match.kwargs:
-        object_id = request.resolver_match.kwargs.get("object_id")
+    resolver = request.resolver_match
 
-    current_view_name = request.resolver_match.view_name
+    # [关键修复] 1. 防御性检查：确保视图匹配正确的模型
+    if not (resolver and
+            resolver.view_name.startswith("admin:workflow_inferenceproject_")):
+        return []
 
-    # 必须与 InferenceProjectAdmin.change_view 匹配
+    # 2. 检查是否有 object_id (确认是 detail view)
+    object_id = resolver.kwargs.get("object_id")
+    if not object_id:
+        return []
+
+    # 此时 object_id 保证为 UUID 字符串，且视图匹配 InferenceProject
+    current_view_name = resolver.view_name
     default_change_view_name = "admin:workflow_inferenceproject_change"
 
     tab_items = []
@@ -88,7 +90,7 @@ class InferenceProjectAdmin(ModelAdmin):
     L3 推理项目的 Admin 界面。
     """
     form = InferenceProjectForm
-    list_display = ('name', 'annotation_project', 'created', 'modified', 'go_to_annotation')
+    list_display = ('name', 'asset','status', 'created', 'modified', 'view_current_project', 'go_to_annotation',)
     list_display_links = ('name',)
     search_fields = ('name', 'annotation_project__name')
 
@@ -216,11 +218,19 @@ class InferenceProjectAdmin(ModelAdmin):
 
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
+    @admin.display(description="操作")
+    def view_current_project(self, obj):
+        """
+        在 changelist 视图中添加一个“进入项目”的快捷按钮，用于跳转到当前 Inference Project 的详情页。
+        """
+        url = reverse('admin:workflow_inferenceproject_change', args=[obj.pk])
+        return format_html('<a href="{}" class="button">进入项目</a>', url)
+
     @admin.display(description="关联标注项目")
     def go_to_annotation(self, obj):
         try:
             # [!!! 步骤 1.3: 修复 URL Name (与 annotation/admin.py 一致) !!!]
             url = reverse('admin:workflow_annotationproject_change', args=[obj.annotation_project.pk])
-            return format_html('<a href="{}" class="button">进入标注</a>', url)
+            return format_html('<a href="{}" class="button">返回标注</a>', url)
         except Exception:
             return "N/A"

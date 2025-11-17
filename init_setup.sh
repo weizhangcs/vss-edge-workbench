@@ -2,6 +2,16 @@
 # Rigorous exit on error
 set -e
 
+PROJECT_ROOT=$(pwd)
+
+# 检查当前目录是否包含冒号 (Windows 盘符 C:)，并尝试修正为 Docker Compose 可理解的路径
+if [[ "$PROJECT_ROOT" == *":"* ]]; then
+    echo "Warning: Detected potential Windows path. Setting PROJECT_ROOT for compatibility."
+    # 尝试使用 MSYS/MinGW 的 'pwd -W' 模式，确保路径以 / 开头，用于 docker cp
+    PROJECT_ROOT=$(pwd -W)
+fi
+# -----
+
 # --- Configuration ---
 ENV_TEMPLATE_FILE=".env.template"
 ENV_FILE=".env"
@@ -44,12 +54,6 @@ echo "Please provide initial settings for the instance:"
 # --- NEW: Prompt for the Public Endpoint ---
 read -p "Enter the Public Endpoint URL (e.g., http://your_server_ip or https://your_domain): " PUBLIC_ENDPOINT
 sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE"
-
-# --- [新增] Cloud API Configuration ---
-echo "--- Cloud API Configuration (Required for L3 Inference/L4 Creative) ---"
-read -p "Enter CLOUD_API_BASE_URL (e.g., http://35.180.253.185:8000): " CLOUD_API_BASE_URL
-read -p "Enter CLOUD_INSTANCE_ID: " CLOUD_INSTANCE_ID
-read -p "Enter CLOUD_API_KEY: " CLOUD_API_KEY
 
 # --- Other prompts ---
 read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL

@@ -24,9 +24,6 @@ def get_video_url_for_job(job: AnnotationJob) -> str:
     """
     (V5.0 CDN 加速版)
     为 L1 标注任务智能查找最佳的视频 URL。
-
-    1. 优先尝试查找与项目 'source_encoding_profile' 匹配的 CDN (TranscodingJob) URL。
-    2. 如果找不到，回退到使用本地存储的 'source_video' URL。
     """
     project = job.project
     media_item = job.media
@@ -46,7 +43,9 @@ def get_video_url_for_job(job: AnnotationJob) -> str:
     if not video_url:
         # 2. 回退到使用本地源文件
         if media_item.source_video:
-            video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
+            # [修复 1] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
+            # media_item.source_video.url 现在已经是完整的绝对 URL
+            video_url = media_item.source_video.url
         else:
             logger.warning(f"Job {job.id} 既没有转码文件，也没有源文件，视频 URL 将为空。")
             video_url = ""
@@ -58,8 +57,6 @@ def start_l1_annotation_view(request, job_id):
     """
     (L1 Tab 按钮触发)
     处理“开始L1字幕标注”按钮点击的视图。
-    1. 将 Job 状态变更为“处理中”。
-    2. 重定向到 vss-subeditor 外部工具。
     """
     job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L1_SUBEDITING)
 
@@ -74,10 +71,46 @@ def start_l1_annotation_view(request, job_id):
     # 获取源字幕文件 URL (如果有)
     srt_url = ""
     if job.media.source_subtitle:
-        srt_url = f"{settings.LOCAL_MEDIA_URL_BASE}{job.media.source_subtitle.url}"
+        # [修复 2] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
+        # job.media.source_subtitle.url 现在已经是完整的绝对 URL
+        srt_url = job.media.source_subtitle.url
+
+    logger.debug(f"DEBUG URL: FINAL URLs prepared for Subeditor: video_url={video_url}, srt_url={srt_url}")
 
     job_id_param = job.id
     # 构建一个回调 URL，以便 Subeditor 完成后能返回 L1 Tab
+    return_url_param = request.build_absolute_uri(
+        reverse('admin:workflow_annotationproject_tab_l1', args=[job.project.id]))
+
+    # 构建 vss-subeditor 的 URL
+    subeditor_url = f"{settings.SUBEDITOR_PUBLIC_URL}?videoUrl={video_url}&srtUrl={srt_url}&jobId={job_id_param}&returnUrl={return_url_param}"
+
+    return redirect(subeditor_url)
+
+
+def revise_l1_annotation_view(request, job_id):
+    """
+    (L1 Tab 按钮触发)
+    处理“修订L1字幕”按钮点击的视图。
+    """
+    job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L1_SUBEDITING)
+
+    if job.status == 'COMPLETED':
+        job.revise()  # (COMPLETED -> REVISING, 自动备份在 job.revise() 中处理)
+        job.save()
+        messages.success(request, f"字幕任务 '{job.media.title}' 已重新打开进行修订。")
+
+    # 智能获取视频 URL (CDN 或本地)
+    video_url = get_video_url_for_job(job)
+
+    # 加载*已有的* L1 .ass 文件作为源字幕
+    srt_url = ""
+    if job.l1_output_file:
+        # [修复 3] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
+        # job.l1_output_file.url 现在已经是完整的绝对 URL
+        srt_url = job.l1_output_file.url
+
+    job_id_param = job.id
     return_url_param = request.build_absolute_uri(
         reverse('admin:workflow_annotationproject_tab_l1', args=[job.project.id]))
 
@@ -122,39 +155,6 @@ def save_l1_output_view(request, job_id):
         logger.error(f"保存L1产出物时出错 (Job ID: {job.id}): {e}", exc_info=True)
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
-
-def revise_l1_annotation_view(request, job_id):
-    """
-    (L1 Tab 按钮触发)
-    处理“修订L1字幕”按钮点击的视图。
-    1. 调用 job.revise()，自动备份产出物并将状态变更为“修订中”。
-    2. 重定向到 vss-subeditor 外部工具。
-    """
-    job = get_object_or_404(AnnotationJob, id=job_id, job_type=AnnotationJob.TYPE.L1_SUBEDITING)
-
-    if job.status == 'COMPLETED':
-        job.revise()  # (COMPLETED -> REVISING, 自动备份在 job.revise() 中处理)
-        job.save()
-        messages.success(request, f"字幕任务 '{job.media.title}' 已重新打开进行修订。")
-
-    # 智能获取视频 URL (CDN 或本地)
-    video_url = get_video_url_for_job(job)
-
-    # 加载*已有的* L1 .ass 文件作为源字幕
-    srt_url = ""
-    if job.l1_output_file:
-        # 注意: .name 包含了 'upload_to' 定义的完整相对路径
-        correct_path = f"/media/{job.l1_output_file.name}"
-        srt_url = f"{settings.LOCAL_MEDIA_URL_BASE}{correct_path}"
-
-    job_id_param = job.id
-    return_url_param = request.build_absolute_uri(
-        reverse('admin:workflow_annotationproject_tab_l1', args=[job.project.id]))
-
-    # 构建 vss-subeditor 的 URL
-    subeditor_url = f"{settings.SUBEDITOR_PUBLIC_URL}?videoUrl={video_url}&srtUrl={srt_url}&jobId={job_id_param}&returnUrl={return_url_param}"
-
-    return redirect(subeditor_url)
 
 
 def start_l2l3_annotation_view(request, job_id):

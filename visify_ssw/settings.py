@@ -1,13 +1,28 @@
+# 文件路径: visify_ssw/settings.py (V4.1 - 修复 AppRegistryNotReady)
+
 """
 Django settings for visify_ssw project.
 """
 import os
+import sys
+import logging
 from pathlib import Path
 from decouple import config
 from django.urls import reverse_lazy
+from django.db import connection  # 导入 connection
+
+logger = logging.getLogger(__name__)
+
+# --- [移除顶部的 IntegrationSettings 导入] ---
+# 此时 model 尚未定义
+
+# ----------------------------------------------------------------------
+# I. 核心/基础配置 (CORE/BASE CONFIGURATION)
+# ----------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# 从 .env 读取基础安全和调试配置
 SECRET_KEY = config('DJANGO_SECRET_KEY')
 DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS_str = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1')
@@ -22,9 +37,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # --- APP REGISTRY START ---
     'apps.media_assets.apps.MediaAssetsConfig',
     'apps.configuration.apps.ConfigurationConfig',
     'apps.workflow.apps.WorkflowConfig',
+    # --- APP REGISTRY END ---
     'corsheaders',
     'solo',
     'crispy_forms',
@@ -48,8 +65,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'visify_ssw.urls'
 
-# --- LOGGING CONFIGURATION ---
-# This configuration makes INFO level logs visible in the console
+# --- LOGGING CONFIGURATION (保持不变) ---
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -61,14 +77,14 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'INFO', # Set the handler to process INFO level messages
+            'level': 'INFO',  # Set the handler to process INFO level messages
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
     },
-    'root': { # Configure the root logger
+    'root': {  # Configure the root logger
         'handlers': ['console'],
-        'level': 'INFO', # Set the logger to capture INFO level messages
+        'level': 'INFO',  # Set the logger to capture INFO level messages
     },
 }
 
@@ -109,16 +125,86 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_TZ = True
 
-
-#STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media_root'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ----------------------------------------------------------------------
+# III. 动态配置加载 (DYNAMIC CONFIGURATION LOADING)
+# ----------------------------------------------------------------------
+
+DYNAMIC_SETTINGS = None
+IS_DB_READY = False
+
+# [CRITICAL FIX] 仅在 INSTALLED_APPS 加载后，才尝试导入模型并检查数据库
+if 'migrate' not in sys.argv and 'makemigrations' not in sys.argv:
+    try:
+        # 1. 导入模型 (在 INSTALLED_APPS 之后是安全的)
+        from apps.configuration.models import IntegrationSettings
+
+        # 2. 检查数据库连接是否可用
+        if connection.is_usable():
+            DYNAMIC_SETTINGS = IntegrationSettings.get_solo()
+            IS_DB_READY = True
+    except Exception as e:
+        # Catching any final errors (like table not found) and fall back to .env
+        if "Apps aren't loaded yet" not in str(e):
+            logger.warning(f"Failed to load DYNAMIC_SETTINGS from database, falling back to .env: {e}")
+
+# ----------------------------------------------------------------------
+# IV. 存储配置 (STORAGE CONFIGURATION)
+# ----------------------------------------------------------------------
+
+# 从 .env 读取基础 URL
+LOCAL_MEDIA_URL_BASE = config('LOCAL_MEDIA_URL_BASE', default='http://localhost:9999')
+
+# --- 存储后端动态配置 (S3/Local) ---
+# DYNAMIC_SETTINGS 可能会是 None，所以使用 getattr 安全访问
+FINAL_STORAGE_BACKEND = getattr(DYNAMIC_SETTINGS, 'storage_backend', config('STORAGE_BACKEND', default='local'))
+
+# 初始化所有 AWS 凭证变量（如果数据库可用，将被覆盖）
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='')
+AWS_S3_CUSTOM_DOMAIN = config('AWS_S3_CUSTOM_DOMAIN', default=None)
+
+# 1. 如果数据库可用，从 DB 加载 AWS 凭证
+if IS_DB_READY and FINAL_STORAGE_BACKEND == 's3':
+    AWS_ACCESS_KEY_ID = DYNAMIC_SETTINGS.aws_access_key_id
+    AWS_SECRET_ACCESS_KEY = DYNAMIC_SETTINGS.aws_secret_access_key
+    AWS_STORAGE_BUCKET_NAME = DYNAMIC_SETTINGS.aws_storage_bucket_name
+    AWS_S3_REGION_NAME = DYNAMIC_SETTINGS.aws_s3_region_name
+    AWS_S3_CUSTOM_DOMAIN = DYNAMIC_SETTINGS.aws_s3_custom_domain
+
+# 2. 应用最终存储设置
+if FINAL_STORAGE_BACKEND == 's3':
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
+
+    # 保留用于 S3 路径的前缀配置（这些仍可从 .env 读取）
+    AWS_S3_PROCESSED_VIDEOS_PREFIX = config('AWS_S3_PROCESSED_VIDEOS_PREFIX', default='processed_videos/')
+    AWS_S3_SOURCE_SUBTITLES_PREFIX = config('AWS_S3_SOURCE_SUBTITLES_PREFIX', default='source_subtitles/')
+else:
+    # 默认使用本地文件存储
+    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+
+# ----------------------------------------------------------------------
+# V. 媒体/静态文件路径 (MEDIA/STATIC PATHS)
+# ----------------------------------------------------------------------
+
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+MEDIA_ROOT = BASE_DIR / 'media_root'
+
+# [关键修复] STATIC_URL 和 MEDIA_URL 必须使用完整的绝对 URL，指向 Nginx (9999 端口)
+STATIC_URL = f'{LOCAL_MEDIA_URL_BASE}/static/'
+MEDIA_URL = f'{LOCAL_MEDIA_URL_BASE}/media/'
+
+# ----------------------------------------------------------------------
+# VI. 异步/任务队列 (CELERY/TASKS)
+# ----------------------------------------------------------------------
 
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
 CELERY_RESULT_BACKEND = config("CELERY_BROKER_URL", default="redis://redis:6-379/0")
@@ -134,48 +220,67 @@ CELERY_IMPORTS = (
     'apps.workflow.creative.tasks'
 )
 
-AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
-AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
-AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
-AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='')
-AWS_S3_CUSTOM_DOMAIN = config('AWS_S3_CUSTOM_DOMAIN', default='')
-AWS_S3_PROCESSED_VIDEOS_PREFIX = config('AWS_S3_PROCESSED_VIDEOS_PREFIX', default='processed_videos/')
-AWS_S3_SOURCE_SUBTITLES_PREFIX = config('AWS_S3_SOURCE_SUBTITLES_PREFIX', default='source_subtitles/')
+# ----------------------------------------------------------------------
+# VII. 外部集成服务 URL/TOKEN (EXTERNAL INTEGRATION SERVICES)
+# ----------------------------------------------------------------------
+
+# 从 .env 读取内部组件 URL (这些不应该放在 DB 中)
+SUBEDITOR_URL = config("SUBEDITOR_URL", default="http://subeditor:3000")
+LABEL_STUDIO_URL = config('LABEL_STUDIO_INTERNAL_URL', default='http://label-studio:8080')
+
+# 从 .env 读取派生公共 URL (这些仍由 init_setup.sh 管理)
+LABEL_STUDIO_PUBLIC_URL = config("LABEL_STUDIO_PUBLIC_URL", default="http://localhost:8081")
+SUBEDITOR_PUBLIC_URL = config("SUBEDITOR_PUBLIC_URL", default="http://localhost:3000")
+LABEL_STUDIO_ACCESS_TOKEN = config('LABEL_STUDIO_ACCESS_TOKEN', default='')
+
+# --- 云端 API 设置 (从 DB 加载，.env 仅作回退) ---
+CLOUD_API_BASE_URL = getattr(DYNAMIC_SETTINGS, 'cloud_api_base_url', None) or config('CLOUD_API_BASE_URL', default='')
+CLOUD_INSTANCE_ID = getattr(DYNAMIC_SETTINGS, 'cloud_instance_id', None) or config('CLOUD_INSTANCE_ID', default='')
+CLOUD_API_KEY = getattr(DYNAMIC_SETTINGS, 'cloud_api_key', None) or config('CLOUD_API_KEY', default='')
+
+# ----------------------------------------------------------------------
+# VIII. 其它杂项配置 (MISCELLANEOUS)
+# ----------------------------------------------------------------------
+
+# 1. 获取 Django Admin 的实际公共访问 URL
+# 确保使用 PUBLIC_ENDPOINT 的 host/scheme 并强制使用 8000 端口
+ADMIN_PUBLIC_URL = config('PUBLIC_ENDPOINT', default='http://localhost').rstrip('/') + ':8000'
+
+# 2. CSRF/SESSION 安全修正 (防止在 HTTP 环境下 CSRF 失败)
+CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = False
+
+# 3. CSRF 配置
+CSRF_TRUSTED_ORIGINS = [
+    # 信任 Django Admin 自己的 URL (用于 Admin 表单提交)
+    ADMIN_PUBLIC_URL,
+    # 信任 Subeditor URL (用于跨域表单提交或嵌入场景)
+    config("SUBEDITOR_PUBLIC_URL", default="http://localhost:3000"),
+]
 
 CORS_ALLOWED_ORIGINS_str = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000')
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_str.split(',') if origin.strip()]
 CORS_ALLOW_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
 CORS_ALLOW_HEADERS = ["accept", "authorization", "content-type", "user-agent", "x-csrftoken", "x-requested-with"]
 
-SUBEDITOR_URL = config("SUBEDITOR_URL", default="http://subeditor:3000")
-LABEL_STUDIO_URL = config('LABEL_STUDIO_INTERNAL_URL', default='http://label-studio:8080')
-LOCAL_MEDIA_URL_BASE = config('LOCAL_MEDIA_URL_BASE', default='http://localhost:9999')
-LABEL_STUDIO_PUBLIC_URL = config("LABEL_STUDIO_PUBLIC_URL", default="http://localhost:8081")
-SUBEDITOR_PUBLIC_URL = config("SUBEDITOR_PUBLIC_URL", default="http://localhost:3000")
-LABEL_STUDIO_ACCESS_TOKEN = config('LABEL_STUDIO_ACCESS_TOKEN', default='')
-
-# --- 新增：Cloud API 设置 ---
-CLOUD_API_BASE_URL = config('CLOUD_API_BASE_URL', default='')
-CLOUD_INSTANCE_ID = config('CLOUD_INSTANCE_ID', default='')
-CLOUD_API_KEY = config('CLOUD_API_KEY', default='')
-
-STATIC_URL = f'{LOCAL_MEDIA_URL_BASE}/static/'
-
-STORAGE_BACKEND = config('STORAGE_BACKEND', default='local')
+# 4. FFmpeg 参数
 FFMPEG_VIDEO_BITRATE = config('FFMPEG_VIDEO_BITRATE', default='2M')
 FFMPEG_VIDEO_PRESET = config('FFMPEG_VIDEO_PRESET', default='fast')
 
+# ----------------------------------------------------------------------
+# IX. ADMIN/UNFOLD 配置 (ADMIN/UNFOLD CONFIGURATION)
+# ----------------------------------------------------------------------
 UNFOLD = {
-    "SITE_TITLE": "Visify Story Studio",
+    "SITE_TITLE": "Visify Story Studio (Edge)",
     "SIDEBAR": {
         "navigation": [
-            # '工作台' 和 '媒资管理' 保持不变
-            {'title': '工作台', 'items': [{'title': '仪表盘', 'icon': 'space_dashboard', 'link': reverse_lazy('admin:index')}]},
+            {'title': '工作台',
+             'items': [{'title': '仪表盘', 'icon': 'space_dashboard', 'link': reverse_lazy('admin:index')}]},
             {'title': '媒资管理', 'separator': True, 'items': [
-                {'title': '内容资产', 'link': reverse_lazy('admin:media_assets_asset_changelist'), 'icon': 'video_library'},
+                {'title': '内容资产', 'link': reverse_lazy('admin:media_assets_asset_changelist'),
+                 'icon': 'video_library'},
                 {'title': '媒体文件', 'link': reverse_lazy('admin:media_assets_media_changelist'), 'icon': 'movie'}
             ]},
-            # 1. 创建“转码工作流”一级菜单
             {
                 'title': '转码工作流',
                 'separator': True,
@@ -191,27 +296,25 @@ UNFOLD = {
                         'link': reverse_lazy('admin:workflow_transcodingjob_changelist')
                     },
                     {
-                        'title': '转码配置', # 从“系统设置”移动到这里
+                        'title': '转码配置',
                         'icon': 'tune',
                         'link': reverse_lazy('admin:configuration_encodingprofile_changelist')
                     },
                 ]
             },
-            # 2. 创建“标注工作流”一级菜单
             {
-                'title': '建模工作流',  # <-- (来自你的澄清 1)
+                'title': '建模工作流',
                 'separator': True,
                 'items': [
-                    # [!!! 步骤 2.3: 更新二级菜单 !!!]
                     {
-                        'title': '标注项目',  # <-- (来自你的澄清 2)
+                        'title': '标注项目',
                         'icon': 'rate_review',
                         'link': reverse_lazy('admin:workflow_annotationproject_changelist')
                     },
                     {
-                        'title': '推理项目',  # <-- (来自你的澄清 2)
-                        'icon': 'insights',  # (新图标)
-                        'link': reverse_lazy('admin:workflow_inferenceproject_changelist')  # (新 URL)
+                        'title': '推理项目',
+                        'icon': 'insights',
+                        'link': reverse_lazy('admin:workflow_inferenceproject_changelist')
                     },
                 ]
             },
@@ -221,26 +324,25 @@ UNFOLD = {
                 'items': [
                     {
                         'title': '影视解说二创',
-                        'icon': 'send',  # 一个表示发送/分发的图标
+                        'icon': 'send',
                         'link': reverse_lazy('admin:workflow_creativeproject_changelist')
                     },
                 ]
             },
-            # 4. 创建“分发工作流”一级菜单
             {
                 'title': '分发工作流',
                 'separator': True,
                 'items': [
                     {
                         'title': '分发任务',
-                        'icon': 'send',  # 一个表示发送/分发的图标
+                        'icon': 'send',
                         'link': reverse_lazy('admin:workflow_deliveryjob_changelist')
                     },
                 ]
             },
-            # 5. 更新“系统设置”菜单，移除“编码配置”
             {'title': '系统设置', 'separator': True, 'items': [
-                {'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'), 'icon': 'hub'},
+                {'title': '集成设置', 'link': reverse_lazy('admin:configuration_integrationsettings_changelist'),
+                 'icon': 'hub'},
                 {'title': '用户', 'link': reverse_lazy('admin:auth_user_changelist'), 'icon': 'group'},
                 {'title': '用户组', 'link': reverse_lazy('admin:auth_group_changelist'), 'icon': 'groups'}
             ]}

@@ -18,12 +18,6 @@
                    {% if trigger_disabled %}disabled{% endif %}>
               {{ trigger_text }}
             </button>
-
-            {% if original.status == 'COMPLETED' %}
-            <a href="#" class="button variant-default ml-2 disabled" aria-disabled="true" onclick="return false;">
-              🎬 (本地合成全片 - 待实现)
-            </a>
-            {% endif %}
         </div>
     </form>
 </fieldset>
