@@ -6,7 +6,7 @@ from django_fsm import FSMField
 from ..common.baseProject import BaseProject
 
 class TranscodingProject(BaseProject):
-    STATUS = Choices(('PENDING', '等待开始'), ('PROCESSING', '处理中'), ('COMPLETED', '已完成'))
+    STATUS = Choices(('PENDING', '等待开始'), ('PROCESSING', '处理中'), ('COMPLETED', '已完成'), ('FAILED', '失败'))
 
     asset = models.ForeignKey(
         'media_assets.Asset',

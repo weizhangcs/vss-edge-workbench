@@ -22,8 +22,15 @@ class BaseJob(TimeStampedModel):
     @transition(field='status', source='*', target=STATUS.PROCESSING)
     def start(self): pass
 
-    @transition(field='status', source=['PROCESSING', 'REVISING'], target=STATUS.COMPLETED)
+    # [FIX 2a] 允许从 'QA_PENDING' 状态转换到 'COMPLETED'
+    @transition(field='status', source=[STATUS.PROCESSING, STATUS.REVISING, STATUS.QA_PENDING], target=STATUS.COMPLETED)
     def complete(self): pass
+
+    # [FIX 2b] 添加一个新的转换方法，用于从 'PROCESSING' 到 'QA_PENDING'
+    @transition(field='status', source=STATUS.PROCESSING, target=STATUS.QA_PENDING)
+    def queue_for_qa(self):
+        """(新) 标记为已处理，等待下一步（例如分发）。"""
+        pass
 
     @transition(field='status', source=STATUS.COMPLETED, target=STATUS.REVISING)
     def revise(self):

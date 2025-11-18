@@ -8,6 +8,8 @@ from django.core.files.base import ContentFile
 import logging
 import os
 
+from django.db import transaction
+
 # [修复/新增] 确保导入 TranscodingProject
 from ..models import TranscodingJob, DeliveryJob, TranscodingProject
 from ..delivery.tasks import run_delivery_job
@@ -61,8 +63,14 @@ def run_transcoding_job(job_id):
         logger.error(f"找不到 ID 为 {job_id} 的转码任务。")
         return
 
-    job.start()
-    job.save()
+    # [FIX 3a] 确保我们是从 PENDING 状态开始的
+    if job.status == TranscodingJob.STATUS.PENDING:
+        job.start()
+        job.save()
+    elif job.status != TranscodingJob.STATUS.PROCESSING:
+        logger.warning(f"任务 {job_id} 状态为 {job.status}，不是 PENDING，跳过 start()")
+        # (如果任务是 REVISING 等，也允许继续)
+        pass
 
     media = job.media
     source_video_path = Path(media.source_video.path)
@@ -94,10 +102,13 @@ def run_transcoding_job(job_id):
 
         # 3. 触发分发任务
         delivery_job = DeliveryJob.objects.create(source_object=job)
-        run_delivery_job.delay(delivery_job.id)
-        logger.info(f"已为转码任务 {job.id} 创建并触发了分发任务 {delivery_job.id}")
 
-        job.complete()
+        transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
+
+        logger.info(f"已为转码任务 {job.id} 创建分发任务 {delivery_job.id} (等待事务提交后触发)")
+
+        # 4. 使用 FSM 方法转换到 QA_PENDING
+        job.queue_for_qa()
         job.save()
 
         # [新增逻辑] 检查并更新父级项目状态
