@@ -1,6 +1,7 @@
-# 使用官方Python精简镜像
-#FROM python:3.12-slim
-FROM docker.xuanyuan.run/library/python:3.12-slim
+#FROM python:3.12-slim 官方Python精简镜像
+#FROM docker.xuanyuan.run/library/python:3.12-slim 轩辕镜像的代理加速地址
+#国内阿里云的镜像仓库（避免配置docker desktop的registry）
+FROM crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/base:3.12-slim
 
 # 声明构建参数（可配置镜像源）
 ARG APT_MIRROR=mirrors.aliyun.com

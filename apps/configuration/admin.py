@@ -10,7 +10,6 @@ from unfold.admin import ModelAdmin
 # 确保导入我们需要的组件
 from apps.workflow.widgets import FileFieldWithActionButtonWidget
 from .models import IntegrationSettings, EncodingProfile
-from apps.workflow.annotation.services.label_studio_service import LabelStudioPatService # <-- 导入新的服务
 
 @admin.register(IntegrationSettings)
 class IntegrationSettingsAdmin(ModelAdmin, SingletonModelAdmin): # <-- 核心修正：多重继承
