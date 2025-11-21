@@ -1,0 +1,16 @@
+# docker-compose.deploy.yml
+# This file is for deploying pre-built images to the production environment (e.g., AWS EC2).
+# It only specifies the image tags to be pulled.
+
+services:
+  web:
+    #image: ghcr.io/weizhangcs/vss-workbench:v2.0.3
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
+
+  celery_worker:
+    #image: ghcr.io/weizhangcs/vss-workbench:v2.0.3
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
+
+  subeditor:
+    #image: ghcr.io/weizhangcs/vss-subeditor:v1.0.3
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:latest

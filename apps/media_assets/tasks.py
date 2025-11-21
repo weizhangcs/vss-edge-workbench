@@ -1,21 +1,24 @@
 # 文件路径: apps/media_assets/tasks.py
-import json
+
 import os
-import shutil
 import subprocess
 import threading
-import boto3
-import requests
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
-
 from celery import shared_task
 from django.conf import settings
-from django.core.files.base import ContentFile
+from django.core.files import File
 from pathlib import Path
-from .services.modeling.script_modeler import ScriptModeler
-from .services.storage import StorageService
+import logging
+
+from apps.media_assets.models import Media
+from apps.media_assets.services.storage import StorageService
+
+# 获取一个模块级的 logger 实例
+logger = logging.getLogger(__name__)
 
 class ProgressLogger:
+    """
+
+    """
     def __init__(self, filename):
         self._filename = filename
         self._size = float(os.path.getsize(filename))
@@ -23,324 +26,165 @@ class ProgressLogger:
         self._lock = threading.Lock()
 
     def __call__(self, bytes_amount):
-        # boto3 会在多线程中调用这个回调，所以我们需要加锁来保证打印的线程安全
         with self._lock:
             self._seen_so_far += bytes_amount
             percentage = (self._seen_so_far / self._size) * 100
-            print(f"上传进度: {self._filename}  {self._seen_so_far} / {int(self._size)} bytes ({percentage:.2f}%)")
+            logger.info(
+                f"上传进度: {self._filename}  {self._seen_so_far} / {int(self._size)} bytes ({percentage:.2f}%)")
 
-@shared_task
-def process_media_asset(asset_id):
+def _check_and_update_asset_processing_status(media):
     """
-    处理媒资文件的异步任务：
-    1. 使用 FFmpeg 降低视频码率
-    2. 将处理后的视频和原始 SRT 上传到 AWS S3
-    3. 将两个文件的公开 URL 写回数据库
+    (V4 命名修正版)
+    检查给定 media 所属的 asset 下的所有 media 的处理状态，
+    并相应地更新 asset 的聚合处理状态。
     """
-    asset = None
-    source_video_path = None
-    processed_video_path = None
-    source_srt_path = None
+    asset = media.asset
+    all_medias = asset.medias.all()
+    total_medias = all_medias.count()
 
-    try:
-        from apps.media_assets.models import Asset
-        asset = Asset.objects.get(id=asset_id)
-
-        # --- 1. 状态更新与文件定位 ---
-        if not asset.source_video or not hasattr(asset.source_video, 'path'):
-            raise FileNotFoundError(f"Asset (ID: {asset_id}) 的源视频文件不存在。")
-
-        source_video_path = asset.source_video.path
-        if asset.source_subtitle and hasattr(asset.source_subtitle, 'path'):
-            source_srt_path = asset.source_subtitle.path
-
-        asset.processing_status = 'processing'
+    if total_medias == 0:
+        asset.processing_status = 'pending'
         asset.save(update_fields=['processing_status'])
+        return
 
-        # --- 2. FFmpeg 视频处理 ---
-        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_processed')
-        os.makedirs(temp_dir, exist_ok=True)
-        processed_filename = f"{asset.id}.mp4"
-        processed_video_path = os.path.join(temp_dir, processed_filename)
+    # 注意：我们假设 Media 模型上有一个 processing_status 字段，
+    # 为了简化，我们暂时借用 Asset 的状态定义。
+    # 实际应用中 Media 也应该有自己的状态。
+    # completed_count = all_medias.filter(status='completed').count()
+    # failed_count = all_medias.filter(status='failed').count()
 
-        ffmpeg_command = ['ffmpeg', '-i', source_video_path, '-c:v', 'libx264', '-b:v', settings.FFMPEG_VIDEO_BITRATE, '-preset', settings.FFMPEG_VIDEO_PRESET, '-y',
-                          processed_video_path]
-        print(f"执行 FFmpeg 命令: {' '.join(ffmpeg_command)}")
-        subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
-        print("FFmpeg 处理成功！")
-
-        # --- 3. 上传文件到 AWS S3 ---
-        print("开始上传文件到 S3...")
-        s3_client = boto3.client('s3', region_name=settings.AWS_S3_REGION_NAME)
-
-        # 上传处理后的视频
-        video_s3_key = f"{settings.AWS_S3_PROCESSED_VIDEOS_PREFIX}{processed_filename}"
-        video_progress = ProgressLogger(processed_video_path)
-        s3_client.upload_file(processed_video_path, settings.AWS_STORAGE_BUCKET_NAME, video_s3_key,Callback=video_progress)
-        video_cdn_url = f"https://{settings.AWS_S3_CUSTOM_DOMAIN}/{video_s3_key}"
-        print(f"视频已上传, URL: {video_cdn_url}")
-
-        # 如果有字幕文件，也上传它，并获取其 URL
-        srt_cdn_url = None
-        if source_srt_path:
-            srt_filename = os.path.basename(source_srt_path)
-            srt_s3_key = f"{settings.AWS_S3_SOURCE_SUBTITLES_PREFIX}{asset.id}/{srt_filename}"
-            srt_progress = ProgressLogger(source_srt_path)
-            s3_client.upload_file(source_srt_path, settings.AWS_STORAGE_BUCKET_NAME, srt_s3_key,Callback=srt_progress)
-            srt_cdn_url = f"https://{settings.AWS_S3_CUSTOM_DOMAIN}/{srt_s3_key}"
-            print(f"字幕已上传, URL: {srt_cdn_url}")
-
-        # --- 4. 将所有结果一次性写回数据库 ---
-        asset.processing_status = 'completed'
-        asset.processed_video_url = video_cdn_url
-        asset.source_subtitle_url = srt_cdn_url  # <-- 关键的同步步骤
-        asset.save(update_fields=['processing_status', 'processed_video_url', 'source_subtitle_url'])
-
-        print(f"处理完成 Asset: {asset.title}")
-        return f"Asset {asset_id} processed and uploaded successfully."
-
-    except (NoCredentialsError, PartialCredentialsError):
-        print("S3 凭证配置不正确或缺失！")
-        if asset:
-            asset.processing_status = 'failed'
-            asset.save(update_fields=['processing_status'])
-        raise
-    except ClientError as e:
-        print(f"S3 上传时发生客户端错误: {e}")
-        if asset:
-            asset.processing_status = 'failed'
-            asset.save(update_fields=['processing_status'])
-        raise
-    except Exception as e:
-        print(f"处理 Asset {asset_id} 时发生未知错误: {e}")
-        if asset:
-            asset.processing_status = 'failed'
-            asset.save(update_fields=['processing_status'])
-        raise
-    finally:
-        # --- 5. 清理本地临时文件 ---
-        if source_video_path and os.path.exists(source_video_path):
-            os.remove(source_video_path)
-        if processed_video_path and os.path.exists(processed_video_path):
-            os.remove(processed_video_path)
-        # 注意：源SRT文件如果还需要用于第一层标注，可以考虑不在这里删除
-        # if source_srt_path and os.path.exists(source_srt_path):
-        #     os.remove(source_srt_path)
-        print("临时文件清理完毕。")
+    # 简化逻辑：只要有一个 media 完成，就更新父级 asset
+    # 这里的逻辑可以根据您的业务需求变得更复杂
+    asset.processing_status = 'completed'
+    asset.save(update_fields=['processing_status'])
 
 @shared_task
-def export_data_from_ls(media_id):
+def process_single_media_file(media_id):
     """
-    (重构版) 从 Label Studio 导出整个项目的标注数据，并保存到 Media 对象。
+    (V4 命名修正版)
+    处理单个物理媒体文件（Media），执行转码、上传等操作，
+    并将结果URL存回该 Media 对象。
     """
-    from .models import Media  # <-- 注意：现在导入的是 Media 模型
-
-    media = None
-    try:
-        media = Media.objects.get(id=media_id)
-        if not media.label_studio_project_id:
-            print(f"错误: Media {media.id} 缺少 LS Project ID，无法导出。")
-            return f"Export failed: Media {media.id} is missing LS project ID."
-
-        project_id = media.label_studio_project_id
-        print(f"开始从 LS 导出 Project {project_id} 的全部数据...")
-
-        label_studio_url = settings.LABEL_STUDIO_URL
-        api_token = settings.LABEL_STUDIO_ACCESS_TOKEN
-        headers = {"Authorization": f"Token {api_token}"}
-
-        # 调用获取整个项目导出的 API
-        export_url = f"{label_studio_url}/api/projects/{project_id}/export"
-
-        # LS 的导出 API 可能会需要一些时间生成，通常会先返回一个任务 ID
-        # 但对于中小型项目，它也可能直接返回文件。我们先按直接返回文件处理。
-        # 增加 stream=True 以便处理可能的大文件
-        response = requests.get(export_url, headers=headers, stream=True)
-        response.raise_for_status()
-
-        # 将返回的文件流内容保存到 label_studio_export_file 字段
-        file_name = f"ls_export_project_{project_id}.json"
-
-        # 使用 Django 的 ContentFile 来包装二进制内容
-        # response.content 会将整个文件读入内存，对于大文件有风险
-        # 更稳健的方式是分块写入，这里为了简化先用 .content
-        file_content = response.content
-
-        media.label_studio_export_file.save(file_name, ContentFile(file_content), save=True)
-
-        print(f"成功导出并保存了 Project {project_id} 的标注数据到 {media.label_studio_export_file.name}")
-
-        # （可选）更新 Media 的状态
-        # media.blueprint_status = 'ready_for_modeling'
-        # media.save()
-
-        return f"Export successful for Media {media.id}"
-
-
-    except Media.DoesNotExist:
-        print(f"错误：在导出任务中找不到 ID 为 {media_id} 的 Media。")
-        return f"Export failed: Media with id {media_id} not found."
-    except requests.exceptions.RequestException as e:
-        print(f"从 LS 导出数据时 API 请求失败: {e}")
-        if media:
-            media.l2_l3_status = 'pending'  # 状态可以回滚为 pending
-            media.save()
-        raise
-    except Exception as e:
-        print(f"导出 LS 数据时发生未知错误: {e}")
-        if media:
-            media.l2_l3_status = 'pending'
-            media.save()
-        raise
-
-@shared_task
-def generate_narrative_blueprint(media_id):
-    """
-    一个包装器任务，负责调用 ScriptModeler 引擎来生成最终的叙事蓝图。
-    """
+    # 导入正确的模型
     from .models import Media
 
-    print(f"开始为 Media ID: {media_id} 生成叙事蓝图...")
     media = Media.objects.get(id=media_id)
+    storage_service = StorageService()
 
     try:
-        # --- 1. 准备 ScriptModeler 所需的输入 ---
+        # 1. 检查源文件是否存在
+        if not media.source_video or not hasattr(media.source_video, 'path'):
+            raise FileNotFoundError(f"Media (ID: {media.id}) 的源视频在数据库中未记录路径。")
 
-        # a. 准备 Label Studio JSON 导出文件
-        # 注意：ScriptModeler 需要一个聚合的 JSON，而我们是按 Asset (Task) 导出的。
-        # 我们需要先将多个 Task 的标注数据合并成 LS 导出的那种列表格式。
-        all_annotations = []
-        for asset in media.assets.order_by('sequence_number'):
-            if asset.l2_l3_output_file and hasattr(asset.l2_l3_output_file, 'path'):
-                with open(asset.l2_l3_output_file.path, 'r', encoding='utf-8') as f:
-                    # l2_l3_output_file 存储的是单个 task 的数据
-                    # 我们需要把它模拟成 LS 导出的那种包含 "annotations" 的结构
-                    task_data = json.load(f)
-                    all_annotations.append(task_data)  # [FIX] 简化为直接聚合任务数据
-            else:
-                print(f"警告: Asset {asset.id} 缺少 L2/L3 标注文件，跳过。")
+        source_video_path = Path(media.source_video.path)
+        if not source_video_path.is_file():
+            logger.critical(f"!!! 输入的视频文件未找到，Media ID: {media.id}，路径: {source_video_path}")
+            # 注意：这里可以为 Media 模型增加一个 status 字段来记录失败状态
+            raise FileNotFoundError(f"为 media {media.id} 在 {source_video_path} 未找到输入文件")
 
-        # 将聚合后的数据写入一个临时的 JSON 文件
-        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_modeler_inputs')
-        os.makedirs(temp_dir, exist_ok=True)
-        aggregated_ls_json_path = Path(temp_dir) / f"{media.id}_ls_export.json"
-        with open(aggregated_ls_json_path, 'w', encoding='utf-8') as f:
-            json.dump(all_annotations, f)
+        # 2. 准备临时目录和FFmpeg命令
+        source_video_path_str = str(source_video_path)
+        temp_dir = Path(settings.MEDIA_ROOT) / 'temp_processed'
+        temp_dir.mkdir(exist_ok=True)
+        # 使用 media.id 命名，确保唯一性
+        processed_video_path = temp_dir / f"{media.id}.mp4"
 
-        # b. 准备 ASS 文件所在的目录
-        # 我们将所有相关的 .ass 文件复制到一个临时目录中
-        ass_dir_path = Path(temp_dir) / f"{media.id}_ass_files"
-        os.makedirs(ass_dir_path, exist_ok=True)
-        for i, asset in enumerate(media.assets.order_by('sequence_number')):
-            if asset.l1_output_file and hasattr(asset.l1_output_file, 'path'):
-                # ScriptModeler 期望 ass 文件名为 01.ass, 02.ass ...
-                target_ass_name = f"{i + 1:02d}.ass"
-                shutil.copy(asset.l1_output_file.path, ass_dir_path / target_ass_name)
+        ffmpeg_command = [
+            'ffmpeg', '-i', source_video_path_str,
+            '-c:v', 'libx264', '-b:v', settings.FFMPEG_VIDEO_BITRATE,
+            '-preset', 'fast', '-y', str(processed_video_path)
+        ]
 
-        # --- 2. 实例化并运行 ScriptModeler ---
-        modeler = ScriptModeler(ls_json_path=aggregated_ls_json_path, ass_dir_path=ass_dir_path)
-        final_structured_script = modeler.build()
+        # 3. 执行转码
+        try:
+            logger.info(f"执行 FFmpeg 命令: {' '.join(ffmpeg_command)}")
+            result = subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True, encoding='utf-8')
+            logger.info(f"FFmpeg STDOUT:\n{result.stdout}")
+        except subprocess.CalledProcessError as e:
+            logger.error("!!! FFmpeg 命令执行失败 !!!")
+            logger.error(f"--- FFmpeg STDERR ---\n{e.stderr}")
+            raise
 
-        # --- 3. 将产出物保存回数据库 ---
-        media.final_narrative_asset = final_structured_script
-        media.save(update_fields=['final_narrative_asset'])
+        # 4. 保存处理后的文件并获取 URL
+        # 注意：storage_service 也需要适配新的 Media 模型
+        video_url = storage_service.save_processed_video(
+            local_temp_path=str(processed_video_path),
+            media=media
+        )
 
-        print(f"成功为 Media ID: {media_id} 生成并保存了叙事蓝图！")
+        # 5. 将结果URL存回 Media 对象
+        media.processed_video_url = video_url
+        media.save(update_fields=['processed_video_url'])
 
-        # --- 4. 清理临时文件 ---
-        shutil.rmtree(temp_dir)
-        print("已清理临时文件。")
+        # 6. 检查并更新父级 Asset 的聚合处理状态
+        _check_and_update_asset_processing_status(media)
 
-        return f"Blueprint generated successfully for Media {media_id}"
+        logger.info(f"成功处理了单个媒体文件: {media.id}")
+        return f"成功处理了单个媒体文件: {media.id}"
 
     except Exception as e:
-        print(f"为 Media ID: {media_id} 生成叙事蓝图时发生错误: {e}")
-        raise
+        logger.error(f"为 Media ID: {media.id} 处理文件时发生决定性错误: {e}", exc_info=True)
+        # 可以在这里更新 Media 的状态为 'failed'
+        # 并同样触发父级 Asset 的状态检查
+        _check_and_update_asset_processing_status(media)
+        raise e
 
 @shared_task
-def ingest_media_files(media_id):
-    """
-    (新) 核心编排任务：
-    1. 扫描指定目录的文件
-    2. 自动创建 Asset 记录
-    3. 为每个 Asset 执行文件处理（转码+存储）
-    """
+def ingest_media_files(asset_id):
     from .models import Media, Asset
 
-    media = None
+    """
+        (V4 命名修正版)
+        为一个 Asset 批量加载文件，并为每个文件创建 Media 对象。
+        """
+    asset = None
     try:
-        media = Media.objects.get(id=media_id)
-        media.ingestion_status = 'ingesting'
-        media.save()
+        asset = Asset.objects.get(id=asset_id)
+        asset.upload_status = 'uploading'
+        #asset.processing_status = 'processing'
+        asset.save(update_fields=['upload_status'])
 
-        # 定义一个用于批量上传的“接收”目录
-        upload_dir = Path(settings.MEDIA_ROOT) / 'batch_uploads' / str(media.id)
+        upload_dir = Path(settings.MEDIA_ROOT) / 'batch_uploads' / str(asset.id)
         if not upload_dir.exists():
-            print(f"警告：未找到 Media ID: {media_id} 的上传目录: {upload_dir}")
-            media.ingestion_status = 'failed'
-            media.save()
-            return f"Ingestion failed: Upload directory not found for Media {media.id}"
+            raise FileNotFoundError(f"未找到 Asset ID: {asset.id} 的上传目录: {upload_dir}")
 
-        # 扫描目录中的视频文件
         video_files = list(upload_dir.glob('*.mp4')) + list(upload_dir.glob('*.mov'))
-        print(f"在 {upload_dir} 中找到 {len(video_files)} 个视频文件。")
+        logger.info(f"在 {upload_dir} 中找到 {len(video_files)} 个视频文件。")
 
         for video_path in video_files:
-            # --- a. 自动创建 Asset ---
             base_name = video_path.stem
             srt_path = upload_dir / f"{base_name}.srt"
 
-            # 假设 sequence_number 来自文件名，例如 ep01 -> 1
-            sequence_number = int("".join(filter(str.isdigit, base_name)) or 0)
+            digits = "".join([char for char in base_name if char.isdigit()])
+            sequence_number = int(digits) if digits else 0
 
-            asset, created = Asset.objects.get_or_create(
-                media=media,
+            # --- 核心逻辑：创建 Media 对象并关联到 Asset ---
+            media, created = Media.objects.get_or_create(
+                asset=asset,
                 sequence_number=sequence_number,
                 defaults={'title': base_name}
             )
-            print(f"已创建/找到 Asset: {asset.title}")
+            logger.info(f"已创建/找到 Media: {media.title}")
 
-            # --- b. 执行文件处理 ---
-            asset.processing_status = 'processing'
-            asset.save()
+            with video_path.open('rb') as f:
+                media.source_video.save(video_path.name, File(f), save=False)
+            if srt_path.exists():
+                with srt_path.open('rb') as f:
+                    media.source_subtitle.save(srt_path.name, File(f), save=False)
+            media.save()
 
-            # i. 视频转码 (FFmpeg)
-            temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_processed')
-            os.makedirs(temp_dir, exist_ok=True)
-            processed_filename = f"{asset.id}.mp4"
-            processed_video_path = os.path.join(temp_dir, processed_filename)
-            ffmpeg_command = ['ffmpeg', '-i', str(video_path), '-c:v', 'libx264', '-b:v', settings.FFMPEG_VIDEO_BITRATE, '-preset', settings.FFMPEG_VIDEO_PRESET, '-y',
-                              processed_video_path]
-            subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
-            print(f"FFmpeg 处理成功 for Asset {asset.id}")
+            # --- 核心逻辑：调用处理 Media 的任务 ---
+            #process_single_media_file.delay(str(media.id))
 
-            # ii. 使用 StorageService 处理文件存储
-            storage_service = StorageService()
-            video_url = storage_service.save_processed_video(
-                local_temp_path=processed_video_path,
-                asset=asset
-            )
-            srt_url = storage_service.save_source_subtitle(
-                local_srt_path=srt_path,
-                asset=asset
-            )
-
-            # iii. 回写 Asset 记录
-            asset.processed_video_url = video_url
-            asset.source_subtitle_url = srt_url
-            asset.processing_status = 'completed'
-            asset.save()
-            print(f"文件处理和存储完成 for Asset {asset.id}")
-
-        # --- 最终化 ---
-        media.ingestion_status = 'completed'
-        media.save()
-        print(f"Media ID: {media_id} 的所有文件已加载处理完毕。")
-        return f"Ingestion complete for Media {media_id}"
+        asset.upload_status = 'completed'
+        asset.save(update_fields=['upload_status'])
+        logger.info(f"Asset ID: {asset.id} 的所有文件已派发处理。")
+        return f"Ingestion complete for Asset {asset.id}"
 
     except Exception as e:
-        print(f"为 Media ID: {media_id} 批量加载文件时发生错误: {e}")
-        if media:
-            media.ingestion_status = 'failed'
-            media.save()
+        logger.error(f"为 Asset ID: {asset_id} 批量加载文件时发生错误: {e}", exc_info=True)
+        if asset:
+            asset.upload_status = 'failed'
+            asset.processing_status = 'failed'
+            asset.save(update_fields=['upload_status'])
         raise
