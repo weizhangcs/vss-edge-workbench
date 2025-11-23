@@ -7,35 +7,57 @@ from django.urls import reverse
 
 from .projects import CreativeProject
 from .tasks import start_narration_task, start_audio_task, start_edit_script_task, start_synthesis_task
+from .forms import NarrationConfigurationForm, DubbingConfigurationForm
 
 logger = logging.getLogger(__name__)
 
 
 def trigger_narration_view(request, project_id):
     """
-    (新) 步骤 1：触发“生成解说词”任务
+    步骤 1：触发“生成解说词”任务 (处理 POST 表单)
     """
     project = get_object_or_404(CreativeProject, id=project_id)
-    # (此处可添加权限和状态检查)
-    if project.status == CreativeProject.STATUS.PENDING:
-        start_narration_task.delay(project_id=str(project.id))
-        messages.success(request, "步骤 1：生成解说词任务已启动。")
-    else:
-        messages.warning(request, f"项目状态为 {project.get_status_display()}，无法启动解说词任务。")
+
+    if request.method == 'POST':
+        # 1. 绑定数据
+        form = NarrationConfigurationForm(request.POST)
+
+        if project.status != CreativeProject.STATUS.PENDING:
+            messages.warning(request, f"项目状态不对，无法启动。")
+            return redirect(reverse('admin:workflow_creativeproject_tab_1_narration', args=[project_id]))
+
+        if form.is_valid():
+            # 2. 提取清洗后的数据
+            config_data = form.cleaned_data
+            # 3. 传递给 Task
+            start_narration_task.delay(project_id=str(project.id), config=config_data)
+            messages.success(request, "已使用新配置启动解说词生成任务。")
+        else:
+            # 简单处理错误，实际生产中可能需要带错误重定向回页面
+            messages.error(request, f"参数配置有误: {form.errors.as_text()}")
 
     return redirect(reverse('admin:workflow_creativeproject_tab_1_narration', args=[project_id]))
 
 
 def trigger_audio_view(request, project_id):
     """
-    (新) 步骤 2：触发“生成配音”任务 (待实现)
+    步骤 2：触发“生成配音”任务
     """
     project = get_object_or_404(CreativeProject, id=project_id)
-    if project.status == CreativeProject.STATUS.NARRATION_COMPLETED:
-        start_audio_task.delay(project_id=str(project.id))  # (您未来的任务)
-        messages.success(request, "步骤 2：生成配音任务已启动。")
-    else:
-        messages.warning(request, "必须先完成解说词才能生成配音。")
+
+    if request.method == 'POST':
+        form = DubbingConfigurationForm(request.POST)
+
+        if project.status != CreativeProject.STATUS.NARRATION_COMPLETED:
+            messages.warning(request, "请先完成解说词步骤。")
+            return redirect(reverse('admin:workflow_creativeproject_tab_2_audio', args=[project_id]))
+
+        if form.is_valid():
+            config_data = form.cleaned_data
+            start_audio_task.delay(project_id=str(project.id), config=config_data)
+            messages.success(request, "已启动配音生成任务。")
+        else:
+            messages.error(request, f"参数错误: {form.errors.as_text()}")
 
     return redirect(reverse('admin:workflow_creativeproject_tab_2_audio', args=[project_id]))
 

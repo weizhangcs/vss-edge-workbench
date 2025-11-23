@@ -1,0 +1,27 @@
+# docker-compose.local.yml
+# This file is for the local development environment. It overrides the base configuration to build from local source.
+
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  web:
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:dev
+    build:
+      context: .
+    volumes:
+      # Mount the local source code to enable hot-reloading
+      - .:/app
+
+  celery_worker:
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:dev
+    build:
+      context: .
+    volumes:
+      - .:/app
+
+  subeditor:
+     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:dev
+     build:
+       context: ..\..\WebstormProjects\vss-sub-editor

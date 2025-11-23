@@ -84,8 +84,23 @@ class CloudApiService:
             "payload": payload
         }
 
+        logger.info(f"正在 POST 请求: {create_url}")  # 再次确认 URL
+
         try:
             response = requests.post(create_url, headers=headers, json=full_payload, timeout=60)
+
+            if response.status_code == 404:
+                logger.error("!!! 捕获到 404 错误 !!!")
+                logger.error(f"请求 URL: {create_url}")
+                logger.error(f"响应内容 (前500字符): {response.text[:500]}")
+                # 如果是 JSON，打印解析后的详情
+                try:
+                    logger.error(f"响应 JSON: {response.json()}")
+                except:
+                    pass
+
+            response.raise_for_status()
+
             response.raise_for_status()
 
             response_data = response.json()

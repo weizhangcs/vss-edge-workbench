@@ -25,7 +25,7 @@ ENV_FILE=".env"
 
 # Docker Compose 文件
 BASE_COMPOSE_FILE="docker-compose.base.yml"
-DEPLOY_COMPOSE_FILE="docker-compose.local.yml"
+DEPLOY_COMPOSE_FILE="docker-compose.test.yml"
 
 # Nginx 配置文件 (必须存在，用于卷挂载)
 NGINX_MEDIA_CONF="configs/nginx/vss-media-server.conf"
@@ -122,7 +122,7 @@ echo "✅ Configuration successful. Starting deployment..."
 COMPOSE_FILES="-f $BASE_COMPOSE_FILE -f $DEPLOY_COMPOSE_FILE"
 WEB_SERVICE="web"
 DB_SERVICE="db"
-PROJECT_NAME="visify-ssw" # <-- 锁定项目名称
+PROJECT_NAME="visify-edge" # <-- 锁定项目名称
 COLLECTSTATIC_LOG_FILE="exec_tmp.log" # 用于捕获 exec 过程中的临时日志
 
 # 1. 启动所有服务 (Launch all services)

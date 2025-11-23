@@ -8,7 +8,7 @@ from django.shortcuts import redirect
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
-from .forms import CreativeProjectForm
+from .forms import CreativeProjectForm, NarrationConfigurationForm, DubbingConfigurationForm # 导入新表单
 from .projects import CreativeProject
 from .jobs import CreativeJob
 
@@ -150,28 +150,32 @@ class CreativeProjectAdmin(ModelAdmin):
         context = extra_context or {}
         project = self.get_object(request, object_id)
 
-        # [!!! 修正 !!!]
-        # form_url 现在指向我们新创建的、在 'workflow' 命名空间下的 URL
+        # 1. 实例化表单 (如果是 POST，视图层会处理，这里主要负责初始渲染)
+        # 我们不需要在这里绑定 POST 数据，因为 POST 请求会直接打到 trigger_narration_view
+        form = NarrationConfigurationForm()
+
         form_url = reverse('workflow:creative_trigger_narration', args=[project.pk])
-        #form_url = reverse('admin:workflow_creativeproject_tab_1_narration', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成解说词 (步骤 1)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.PENDING
-        context['help_text'] = "点击按钮将调用云端 API 生成解说词。"
+        context['help_text'] = "请配置解说词的叙事方向和风格。"
+        context['configuration_form'] = form  # [关键] 将表单注入上下文
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
-        # [!!! 修正 !!!] 我们需要将 form_url 传递给 changeform_view
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
     def tab_2_audio_view(self, request, object_id, extra_context=None):
         context = extra_context or {}
         project = self.get_object(request, object_id)
 
+        form = DubbingConfigurationForm() # 默认值即可
+
         form_url = reverse('workflow:creative_trigger_audio', args=[project.pk])
 
         context['trigger_text'] = "▶️ 生成配音 (步骤 2)"
         context['trigger_disabled'] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
-        context['help_text'] = "当解说词生成后，点击此按钮开始配音。"
+        context['help_text'] = "配置配音的音色和语速。风格默认继承自解说词。"
+        context['configuration_form'] = form # [关键] 将表单注入上下文
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
