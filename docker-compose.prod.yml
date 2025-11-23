@@ -4,13 +4,13 @@
 
 services:
   web:
-    #image: ghcr.io/weizhangcs/vss-workbench:v2.0.3
+    #image: ghcr.io/weizhangcs/vss-workbench:latest
     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
 
   celery_worker:
-    #image: ghcr.io/weizhangcs/vss-workbench:v2.0.3
+    #image: ghcr.io/weizhangcs/vss-workbench:latest
     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
 
   subeditor:
-    #image: ghcr.io/weizhangcs/vss-subeditor:v1.0.3
+    #image: ghcr.io/weizhangcs/vss-subeditor:latest
     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:latest

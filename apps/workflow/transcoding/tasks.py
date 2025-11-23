@@ -95,21 +95,28 @@ def run_transcoding_job(job_id):
         subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
         logger.info(f"FFmpeg 转码成功: {temp_output_path}")
 
-        # 2. 保存输出文件和任务完成
-        with open(temp_output_path, 'rb') as f:
-            job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
-        logger.info(f"已将本地产出物路径保存至 job.output_file")
+        # ----------------- 修改开始 -----------------
+        # 使用原子事务块，确保块内所有数据库操作提交后，才会执行 on_commit
+        with transaction.atomic():
+            # 1. 先保存文件 (save=False 不操作DB，只是把文件对象挂在内存实例上)
+            with open(temp_output_path, 'rb') as f:
+                job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
 
-        # 3. 触发分发任务
-        delivery_job = DeliveryJob.objects.create(source_object=job)
+            # 2. 更新状态为 QA_PENDING
+            job.queue_for_qa()
 
-        transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
+            # 3. 真正保存到数据库 (状态和文件路径同时落库)
+            job.save()
+            logger.info(f"已将本地产出物路径保存至 job.output_file，状态已更为 QA_PENDING")
 
-        logger.info(f"已为转码任务 {job.id} 创建分发任务 {delivery_job.id} (等待事务提交后触发)")
+            # 4. 创建分发任务记录
+            delivery_job = DeliveryJob.objects.create(source_object=job)
 
-        # 4. 使用 FSM 方法转换到 QA_PENDING
-        job.queue_for_qa()
-        job.save()
+            # 5. 注册回调：只有当这个 with 块成功结束（事务提交）后，才发送 Celery 任务
+            transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
+
+            logger.info(f"已为转码任务 {job.id} 创建分发任务 {delivery_job.id} (等待事务提交后触发)")
+        # ----------------- 修改结束 -----------------
 
         # [新增逻辑] 检查并更新父级项目状态
         _check_and_update_project_status(job.project)

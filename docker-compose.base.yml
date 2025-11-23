@@ -4,7 +4,6 @@
 services:
   db:
     image: postgres:16
-    container_name: vss-db
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     restart: unless-stopped
@@ -21,7 +20,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: vss-redis
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
@@ -35,7 +33,6 @@ services:
       - TZ=Asia/Shanghai
 
   web:
-    container_name: vss-web
     command: python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
@@ -51,7 +48,6 @@ services:
       - TZ=Asia/Shanghai
 
   celery_worker:
-    container_name: vss-celery-worker
     command: celery -A visify_ssw worker -l info
     env_file:
       - .env
@@ -64,7 +60,6 @@ services:
 
   nginx_media_server:
     image: nginx:1.25-alpine
-    container_name: vss-nginx-media
     ports:
       - "9999:80"
     volumes:
@@ -75,7 +70,6 @@ services:
       - TZ=Asia/Shanghai
 
   subeditor:
-    container_name: vss-subeditor
     ports:
       - "3000:3000"
     env_file:
@@ -83,9 +77,8 @@ services:
     environment: # <-- 新增：设置时区
       - TZ=Asia/Shanghai
 
-  label-studio:
+  label_studio:
     image: heartexlabs/label-studio:latest
-    container_name: vss-label-studio
     ports:
       - "8081:8080"
     volumes:
@@ -105,7 +98,7 @@ services:
       - DJANGO_SESSION_COOKIE_SECURE=False
       - DJANGO_CSRF_COOKIE_SECURE=False
       - CSRF_TRUSTED_ORIGINS=${LABEL_STUDIO_PUBLIC_URL}
-      - CSP_CONNECT_SRC='self' https://${AWS_S3_CUSTOM_DOMAIN}
+      - CSP_CONNECT_SRC='self' ${LOCAL_MEDIA_URL_BASE}
       - TZ=Asia/Shanghai # <-- 新增：设置时区
 
 volumes:
