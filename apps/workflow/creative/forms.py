@@ -3,6 +3,7 @@
 from django import forms
 from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminTextInputWidget, UnfoldAdminSelectWidget, UnfoldAdminIntegerFieldWidget
 from .projects import CreativeProject
+from apps.workflow.inference.projects import InferenceProject
 
 
 class CreativeProjectForm(forms.ModelForm):
@@ -96,8 +97,8 @@ class DubbingConfigurationForm(forms.Form):
     """
     TEMPLATE_CHOICES = [
         ('chinese_paieas_replication', '标准解说音色 (推荐)'),
-        ('male_deep', '深沉男声'),
-        ('female_sweet', '甜美得力'),
+        #('male_deep', '深沉男声'),
+        #('female_sweet', '甜美得力'),
     ]
 
     # 这里的 Style 可以留空，留空则继承 Narration
@@ -139,4 +140,51 @@ class DubbingConfigurationForm(forms.Form):
         required=False,
         widget=UnfoldAdminTextInputWidget,
         help_text="高级用户专用，例如：'用极度夸张的语气说<|endofprompt|>'"
+    )
+
+class BatchCreationForm(forms.Form):
+    """
+    批量创作编排器的配置表单。
+    """
+    inference_project = forms.ModelChoiceField(
+        #queryset=InferenceProject.objects.filter(status='COMPLETED'),  # 必须是已完成推理的项目
+        queryset=InferenceProject.objects.all(),
+        label="源推理项目 (Source)",
+        required=True,
+        widget=UnfoldAdminSelectWidget,
+        help_text="选择基于哪个推理结果（蓝图/画像）进行二创。"
+    )
+
+    count = forms.IntegerField(
+        label="生成数量 (Count)",
+        initial=5,
+        min_value=1,
+        max_value=50,
+        widget=UnfoldAdminIntegerFieldWidget
+    )
+
+    # --- 以下为可选参数，不填则随机 ---
+
+    narrative_focus = forms.ChoiceField(
+        label="叙事焦点 (可选)",
+        choices=[('', '🎲 [随机] 由系统自动分配')] + NarrationConfigurationForm.NARRATIVE_FOCUS_CHOICES,
+        required=False,
+        widget=UnfoldAdminSelectWidget
+    )
+
+    style = forms.ChoiceField(
+        label="解说风格 (可选)",
+        choices=[('', '🎲 [随机] 由系统自动分配')] + NarrationConfigurationForm.STYLE_CHOICES,
+        required=False,
+        widget=UnfoldAdminSelectWidget
+    )
+
+    # 配音模板：根据您的要求，这里只显示推荐的一个，且必选（或者默认选中且隐藏其他）
+    # 为了简单，我们直接写死默认值，UI上可以显示为 Readonly 或者单选项
+    template_name = forms.ChoiceField(
+        label="配音模板",
+        choices=[('chinese_paieas_replication', '标准解说音色 (推荐)')],
+        initial='chinese_paieas_replication',
+        widget=UnfoldAdminSelectWidget,
+        help_text="当前仅开放推荐音色。"
     )

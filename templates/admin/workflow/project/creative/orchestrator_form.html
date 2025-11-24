@@ -1,0 +1,217 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static unfold %}
+
+{# --- 引入 Tom Select (用于下拉框搜索) --- #}
+{% block extrahead %}
+    {{ block.super }}
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <style>
+        .ts-control {
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-color: #d1d5db;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .ts-control.focus {
+            border-color: #93c5fd;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .ts-dropdown {
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+            z-index: 50;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto mt-10 mb-20">
+
+    {# --- 页面标题区 --- #}
+    <div class="flex items-center mb-8">
+        <div class="p-2 bg-purple-50 rounded-lg mr-4">
+            <span class="material-symbols-outlined text-purple-600 text-3xl">auto_mode</span>
+        </div>
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">批量创作编排器 (Orchestrator)</h1>
+            <p class="text-sm text-gray-500 mt-1">自动化流水线：一键生成多条不同风格的二创视频</p>
+        </div>
+    </div>
+
+    <div class="bg-white shadow-lg rounded-xl border border-gray-100 overflow-hidden">
+
+        <form method="post" class="divide-y divide-gray-100">
+            {% csrf_token %}
+
+            {% if form.errors %}
+                <div class="p-6 bg-red-50 border-b border-red-100">
+                    <div class="flex items-start">
+                        <span class="material-symbols-outlined text-red-600 mr-3 mt-0.5">error</span>
+                        <div class="text-sm text-red-800 font-medium">
+                            {{ form.errors }}
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            {# --- 第一部分：基础设置 (左右布局) --- #}
+            <div class="p-8">
+                <h3 class="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+                    <span class="material-symbols-outlined mr-2 text-gray-400">settings</span>
+                    基础设置
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {# 1. 源推理项目 #}
+                    <div class="form-group">
+                        <label for="{{ form.inference_project.id_for_label }}" class="block text-sm font-semibold text-gray-700 mb-2">
+                            {{ form.inference_project.label }} <span class="text-red-500">*</span>
+                        </label>
+                        <select name="{{ form.inference_project.name }}" id="{{ form.inference_project.id_for_label }}" required placeholder="-- 搜索已完成的推理项目 --">
+                            <option value="">-- 请选择 --</option>
+                            {% for x, y in form.fields.inference_project.choices %}
+                                <option value="{{ x }}" {% if form.fields.inference_project.initial == x %}selected{% endif %}>{{ y }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="mt-2 text-xs text-gray-500">{{ form.inference_project.help_text }}</p>
+                    </div>
+
+                    {# 2. 生成数量 #}
+                    <div class="form-group">
+                        <label for="{{ form.count.id_for_label }}" class="block text-sm font-semibold text-gray-700 mb-2">
+                            {{ form.count.label }} <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <input type="number" name="{{ form.count.name }}" id="{{ form.count.id_for_label }}" value="{{ form.count.initial }}" min="1" max="50"
+                                   class="block w-full pl-4 pr-12 py-3 text-base border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 shadow-sm transition-shadow">
+                            <div class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+                                <span class="text-gray-400 text-sm">条</span>
+                            </div>
+                        </div>
+                        <p class="mt-2 text-xs text-gray-500">建议单次不超过 20 条，以免任务队列拥堵。</p>
+                    </div>
+                </div>
+            </div>
+
+            {# --- 第二部分：策略配置 (蓝色背景区) --- #}
+            <div class="p-8 bg-slate-50">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                        <span class="material-symbols-outlined mr-2 text-gray-400">tune</span>
+                        随机化策略配置
+                    </h3>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        半随机模式
+                    </span>
+                </div>
+
+                <div class="mb-6 p-4 bg-white border border-blue-200 rounded-lg shadow-sm">
+                    <div class="flex">
+                        <span class="material-symbols-outlined text-blue-500 mr-3">tips_and_updates</span>
+                        <div class="text-sm text-gray-600">
+                            <p><strong>操作指南：</strong></p>
+                            <ul class="list-disc pl-5 mt-1 space-y-1">
+                                <li>如果您选择了具体的选项（如“幽默”），则这一批次生成的视频<strong>全部</strong>为此风格。</li>
+                                <li>如果您保留为 <strong>🎲 [随机]</strong>，系统将为每一个视频随机分配不同的参数组合。</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {# 3. 叙事焦点 #}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">{{ form.narrative_focus.label }}</label>
+                        <div class="relative">
+                            <select name="{{ form.narrative_focus.name }}" class="appearance-none block w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm bg-white">
+                                {% for x, y in form.fields.narrative_focus.choices %}
+                                    <option value="{{ x }}">{{ y }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                                <span class="material-symbols-outlined text-gray-400">expand_more</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# 4. 解说风格 #}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">{{ form.style.label }}</label>
+                        <div class="relative">
+                            <select name="{{ form.style.name }}" class="appearance-none block w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm bg-white">
+                                {% for x, y in form.fields.style.choices %}
+                                    <option value="{{ x }}">{{ y }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                                <span class="material-symbols-outlined text-gray-400">expand_more</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# 5. 配音模板 #}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">{{ form.template_name.label }}</label>
+                        <div class="relative">
+                            <select name="{{ form.template_name.name }}" class="appearance-none block w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm bg-gray-50 text-gray-500 cursor-not-allowed">
+                                {% for x, y in form.fields.template_name.choices %}
+                                    <option value="{{ x }}">{{ y }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                                <span class="material-symbols-outlined text-gray-400">lock</span>
+                            </div>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-400">目前仅开放推荐音色</p>
+                    </div>
+                </div>
+            </div>
+
+            {# --- 底部按钮区 --- #}
+            <div class="px-8 py-6 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                <div class="text-xs text-gray-500">
+                    预计消耗 Cloud API 配额：<span class="font-bold text-gray-900" id="quota-calc">5</span> 次
+                </div>
+                <div class="flex gap-4">
+                    <button type="button" onclick="window.history.back()"
+                       class="px-6 py-2.5 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-200 transition-colors">
+                        取消
+                    </button>
+
+                    <button type="submit"
+                            class="inline-flex items-center justify-center px-6 py-2.5 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors">
+                        <span class="material-symbols-outlined text-xl mr-2">rocket_launch</span>
+                        启动生产线
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 初始化搜索下拉框
+        new TomSelect('#{{ form.inference_project.id_for_label }}', {
+            create: false,
+            sortField: { field: "text", direction: "asc" },
+            placeholder: "输入关键词搜索...",
+            allowEmptyOption: true,
+        });
+
+        // 简单的配额计算联动
+        const countInput = document.getElementById('{{ form.count.id_for_label }}');
+        const quotaDisplay = document.getElementById('quota-calc');
+
+        if(countInput && quotaDisplay) {
+            countInput.addEventListener('input', function(e) {
+                quotaDisplay.innerText = e.target.value || 0;
+            });
+            // 初始化值
+            quotaDisplay.innerText = countInput.value;
+        }
+    });
+</script>
+{% endblock %}

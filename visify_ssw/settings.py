@@ -311,6 +311,11 @@ UNFOLD = {
                         'icon': 'rate_review',
                         'link': reverse_lazy('admin:workflow_annotationproject_changelist')
                     },
+{
+                        'title': '导入标注项目 (ZIP)',
+                        'icon': 'file_upload',  # 使用 Material Icon 'file_upload'
+                        'link': reverse_lazy('admin:workflow_annotationproject_import')
+                    },
                     {
                         'title': '推理项目',
                         'icon': 'insights',
@@ -327,6 +332,8 @@ UNFOLD = {
                         'icon': 'send',
                         'link': reverse_lazy('admin:workflow_creativeproject_changelist')
                     },
+                    {'title': '批量创作编排器', 'icon': 'auto_mode', 'link': reverse_lazy('admin:creative_batch_orchestrator')},
+                    {'title': '任务批次监控', 'icon': 'view_list', 'link': reverse_lazy('admin:workflow_creativebatch_changelist')},
                 ]
             },
             {

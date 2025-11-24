@@ -25,7 +25,7 @@ ENV_FILE=".env"
 
 # Docker Compose 文件
 BASE_COMPOSE_FILE="docker-compose.base.yml"
-DEPLOY_COMPOSE_FILE="docker-compose.test.yml"
+DEPLOY_COMPOSE_FILE="docker-compose.dev.yml"
 
 # Nginx 配置文件 (必须存在，用于卷挂载)
 NGINX_MEDIA_CONF="configs/nginx/vss-media-server.conf"
@@ -104,6 +104,15 @@ sed -i.bak "s|DJANGO_SUPERUSER_PASSWORD=.*|DJANGO_SUPERUSER_PASSWORD=\"${DJANGO_
 sed -i.bak "s|LABEL_STUDIO_ACCESS_TOKEN=.*|LABEL_STUDIO_ACCESS_TOKEN=\"${LABEL_STUDIO_ACCESS_TOKEN}\"|" "$ENV_FILE"
 sed -i.bak "s|DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=\"${DJANGO_ALLOWED_HOSTS}\"|" "$ENV_FILE"
 
+# [新增] Cloud API 交互配置模块
+echo
+echo "--- Cloud API Configuration (VSS-Cloud) ---"
+echo "Please enter the connection details for the Cloud Orchestrator."
+read -p "Cloud API Base URL (e.g., http://cloud.example.com:8000): " CLOUD_API_BASE_URL
+read -p "Cloud Instance ID (Your Edge unique ID): " CLOUD_INSTANCE_ID
+read -p "Cloud API Key: " CLOUD_API_KEY
+echo
+
 rm -f "${ENV_FILE}.bak"
 chmod 600 "$ENV_FILE"
 
@@ -180,7 +189,7 @@ echo "✅ 迁移成功完成。"
 
 # --- [步骤 3.1: 自动化获取 Legacy API Token (简洁修复版)] ---
 echo "3.1 正在等待 Label Studio 启动并尝试获取 Legacy API Token..."
-LS_SERVICE_NAME="label-studio"
+LS_SERVICE_NAME="label_studio"
 MAX_LS_RETRIES=10
 LS_RETRY_COUNT=0
 # [修正] 直接使用 LABEL_STUDIO_ACCESS_TOKEN 变量
@@ -193,6 +202,7 @@ do
 
     # 步骤 1: 尝试执行 'label-studio user' 命令，并使用 '|| true' 压制 exec 的退出代码
     # 注意：我们必须使用一个临时的 SHELL 变量来接收命令输出，防止解析失败导致主变量污染
+    # 注意：容器命名 label_studio 命令行 label-studio
     LS_OUTPUT=$(docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $LS_SERVICE_NAME sh -c "label-studio user --username \"$DJANGO_SUPERUSER_EMAIL\"" 2>/dev/null | tail -n 1) || true
 
     # 步骤 2: [核心修正] 将解析结果直接赋值给主变量
@@ -220,7 +230,11 @@ echo "4. 执行自动化配置 (setup_instance)..."
 # [核心修改] 将 Token 作为命令行参数 --ls-token 传递
 
 # 注意：我们使用 LABEL_STUDIO_ACCESS_TOKEN 变量（您之前修正的变量名）
-docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py setup_instance --ls-token="$LABEL_STUDIO_ACCESS_TOKEN" > "$COLLECTSTATIC_LOG_FILE" 2>&1
+docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py setup_instance \
+    --ls-token="$LABEL_STUDIO_ACCESS_TOKEN" \
+    --cloud-url="$CLOUD_API_BASE_URL" \
+    --cloud-id="$CLOUD_INSTANCE_ID" \
+    --cloud-key="$CLOUD_API_KEY" > "$COLLECTSTATIC_LOG_FILE" 2>&1
 SETUP_INSTANCE_EXIT_CODE=$?
 
 # 无论成功或失败，先显示 DEBUG 日志

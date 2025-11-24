@@ -18,14 +18,20 @@ class Command(BaseCommand):
             help='Label Studio API Token to be written to IntegrationSettings.'
         )
 
+        # [新增] Cloud API 相关参数
+        parser.add_argument('--cloud-url', type=str, default=None, help='Cloud API Base URL')
+        parser.add_argument('--cloud-id', type=str, default=None, help='Cloud Instance ID')
+        parser.add_argument('--cloud-key', type=str, default=None, help='Cloud API Key')
+
     def handle(self, *args, **options):
 
         ls_token_arg = options['ls_token']
         self.stdout.write(self.style.SUCCESS("🚀 Starting Visify Story Studio instance setup..."))
         self._create_django_superuser()
         self._create_default_encoding_profile()
+        self._update_integration_settings(options)
         # [核心修复] 将接收到的参数传递给方法
-        self._set_label_studio_token(ls_token_arg)
+        #self._set_label_studio_token(ls_token_arg)
         self.stdout.write(self.style.SUCCESS("✅✅✅ Instance setup completed successfully! ✅✅✅"))
         self.stdout.write("You can now log in using the username and password you provided.")
 
@@ -55,6 +61,64 @@ class Command(BaseCommand):
                     self.style.WARNING(f"Local Django superuser '{email}' already existed, password has been reset."))
         except Exception as e:
             raise CommandError(f"Error creating/updating local Django superuser: {e}")
+
+    def _update_integration_settings(self, options):
+        """
+        [重构] 统一更新 IntegrationSettings 单例模型。
+        包含 Label Studio Token 和 Cloud API 配置。
+        """
+        self.stdout.write("⚙️  Configuring Integration Settings...")
+
+        ls_token = options.get('ls_token')
+        cloud_url = options.get('cloud_url')
+        cloud_id = options.get('cloud_id')
+        cloud_key = options.get('cloud_key')
+
+        try:
+            # 1. 获取单例对象 (使用原子锁 get_or_create(pk=1))
+            settings_obj, created = IntegrationSettings.objects.get_or_create(
+                pk=1,
+                defaults={}
+            )
+
+            update_fields = []
+
+            # 2. 处理 Label Studio Token
+            if ls_token and ls_token != "Manual_Setup_Required":
+                settings_obj.label_studio_access_token = ls_token
+                update_fields.append('label_studio_access_token')
+                self.stdout.write(f"   - Label Studio Token set (starts with {ls_token[:5]}...)")
+            elif ls_token == "Manual_Setup_Required":
+                self.stdout.write(self.style.WARNING("   - Label Studio Token skipped (Manual setup required)."))
+
+            # 3. [新增] 处理 Cloud API 配置
+            # 只有当参数不为空时才更新
+            if cloud_url:
+                # 简单的清洗，去除末尾斜杠防止 404
+                clean_url = cloud_url.strip().rstrip('/')
+                settings_obj.cloud_api_base_url = clean_url
+                update_fields.append('cloud_api_base_url')
+                self.stdout.write(f"   - Cloud URL set to: {clean_url}")
+
+            if cloud_id:
+                settings_obj.cloud_instance_id = cloud_id.strip()
+                update_fields.append('cloud_instance_id')
+                self.stdout.write(f"   - Cloud Instance ID set.")
+
+            if cloud_key:
+                settings_obj.cloud_api_key = cloud_key.strip()
+                update_fields.append('cloud_api_key')
+                self.stdout.write(f"   - Cloud API Key set.")
+
+            # 4. 保存变更
+            if update_fields:
+                settings_obj.save(update_fields=update_fields)
+                self.stdout.write(self.style.SUCCESS("✅ Integration Settings updated in database."))
+            else:
+                self.stdout.write("   - No changes made to Integration Settings.")
+
+        except Exception as e:
+            raise CommandError(f"CRASH ERROR: Fatal exception during integration settings update: {e}")
 
     def _create_default_encoding_profile(self):
         # ... (保持原有逻辑不变)

@@ -36,6 +36,7 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
+    user: root
     env_file:
       - .env
     depends_on:
@@ -48,7 +49,8 @@ services:
       - TZ=Asia/Shanghai
 
   celery_worker:
-    command: celery -A visify_ssw worker -l info
+    command: celery -A visify_ssw worker -l info --concurrency=1
+    user: root
     env_file:
       - .env
     depends_on:
@@ -77,25 +79,26 @@ services:
     environment: # <-- 新增：设置时区
       - TZ=Asia/Shanghai
 
-  label_studio:
+  label-studio:
     image: heartexlabs/label-studio:latest
     ports:
       - "8081:8080"
     volumes:
       - label_studio_data:/label-studio/data
-      - ./configs/nginx/nginx-ls.conf:/etc/nginx/nginx.conf:ro
+      #- ./configs/nginx/nginx-ls.conf:/etc/nginx/nginx.conf:ro
     command: label-studio start --username ${DJANGO_SUPERUSER_EMAIL} --password ${DJANGO_SUPERUSER_PASSWORD}
     environment: # <-- 修改：合并和追加时区设置
       - LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN=true
       - LABEL_STUDIO_HOST=${LABEL_STUDIO_PUBLIC_URL}
+      - DJANGO_ALLOWED_HOSTS=*
       - NGINX_PROXY_PASS_AUTHORIZATION=true
       - LABEL_STUDIO_SIGNUP_WITHOUT_INVITE=true
       - DJANGO_SESSION_ENGINE=django.contrib.sessions.backends.cache
       - LABEL_STUDIO_CACHE_BACKEND=django_redis.cache.RedisCache
       - REDIS_LOCATION=redis://redis:6379/1
       - DJANGO_SESSION_COOKIE_SAMESITE=Lax
-      - DJANGO_CSRF_COOKIE_SAMESITE=Lax
       - DJANGO_SESSION_COOKIE_SECURE=False
+      - DJANGO_CSRF_COOKIE_SAMESITE=Lax
       - DJANGO_CSRF_COOKIE_SECURE=False
       - CSRF_TRUSTED_ORIGINS=${LABEL_STUDIO_PUBLIC_URL}
       - CSP_CONNECT_SRC='self' ${LOCAL_MEDIA_URL_BASE}

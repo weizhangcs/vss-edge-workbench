@@ -1,0 +1,158 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static unfold %}
+
+{# --- 引入 Tom Select (用于下拉框搜索) --- #}
+{% block extrahead %}
+    {{ block.super }}
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <style>
+        /* 适配 Unfold/Tailwind 风格的微调 */
+        .ts-control {
+            border-radius: 0.5rem; /* rounded-lg */
+            padding: 0.75rem 1rem; /* py-3 px-4 */
+            border-color: #d1d5db; /* border-gray-300 */
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .ts-control.focus {
+            border-color: #93c5fd; /* ring-primary-300 */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .ts-dropdown {
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto mt-10 mb-20">
+
+    {# --- 页面标题区 --- #}
+    <div class="flex items-center mb-8">
+        <div class="p-2 bg-primary-50 rounded-lg mr-4">
+            <span class="material-symbols-outlined text-primary-600 text-3xl">restore_page</span>
+        </div>
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">从 ZIP 包恢复标注项目</h1>
+            <p class="text-sm text-gray-500 mt-1">将导出的测试数据快速恢复到当前环境</p>
+        </div>
+    </div>
+
+    <div class="bg-white shadow-lg rounded-xl border border-gray-100 overflow-hidden">
+
+        {# --- 顶部提示区 --- #}
+        <div class="bg-blue-50 border-b border-blue-100 p-6">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 pt-0.5">
+                    <span class="material-symbols-outlined text-blue-600 text-xl">info</span>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-base font-semibold text-blue-900">功能说明</h3>
+                    <div class="mt-2 text-sm text-blue-800 space-y-1.5 leading-relaxed">
+                        <p>此功能用于将已导出的标注数据（L1/L2/L3 产出物）挂载到当前环境。</p>
+                        <ul class="list-disc pl-5 space-y-1">
+                            <li>系统会自动解析 ZIP 包中的元数据 (Manifest)。</li>
+                            <li>系统将根据 <strong>媒体序号 (Sequence Number)</strong> 自动匹配子任务。</li>
+                            <li>如果目标媒资缺少对应的视频文件（如缺少 ep02），对应的标注数据将被自动忽略。</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# --- 表单区域 --- #}
+        <form method="post" enctype="multipart/form-data" class="p-8">
+            {% csrf_token %}
+
+            {% if form.errors %}
+                <div class="mb-8 p-4 bg-red-50 rounded-lg border border-red-200 flex items-start">
+                    <span class="material-symbols-outlined text-red-600 mr-3 mt-0.5">error</span>
+                    <div class="text-sm text-red-800 font-medium">
+                        {{ form.errors }}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="space-y-10">
+
+                {# 1. ZIP 文件上传 #}
+                <div class="form-group">
+                    <label for="{{ form.zip_file.id_for_label }}" class="block text-base font-semibold text-gray-800 mb-3">
+                        1. 选择项目导出包 (.zip) <span class="text-red-500">*</span>
+                    </label>
+
+                    <div class="relative group">
+                        <div class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-xl hover:border-primary-500 hover:bg-gray-50 transition-all cursor-pointer">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <span class="material-symbols-outlined text-gray-400 text-5xl mb-3 group-hover:text-primary-500 transition-colors">folder_zip</span>
+                                <p class="mb-2 text-sm text-gray-500">
+                                    <span class="font-semibold text-primary-600">点击上传</span> 或拖拽文件到此处
+                                </p>
+                                <p class="text-xs text-gray-400">仅支持标准的 VSS 导出包 (.zip)</p>
+
+                                {# 文件名回显区 #}
+                                <p id="file-name-display" class="mt-4 text-sm font-medium text-primary-700 h-6 px-3 py-0.5 bg-primary-50 rounded-full hidden"></p>
+                            </div>
+
+                            <input id="{{ form.zip_file.id_for_label }}" name="{{ form.zip_file.name }}" type="file" accept=".zip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required
+                                onchange="const name = this.files[0]?.name; const el = document.getElementById('file-name-display'); if(name){ el.innerText = name; el.classList.remove('hidden'); } else { el.classList.add('hidden'); }">
+                        </div>
+                    </div>
+                </div>
+
+                {# 2. 目标资产选择 (已移除图标，增加了搜索功能) #}
+                <div class="form-group">
+                    <label for="{{ form.target_asset.id_for_label }}" class="block text-base font-semibold text-gray-800 mb-3">
+                        2. 挂载目标资产 (Target Asset) <span class="text-red-500">*</span>
+                    </label>
+
+                    {# 关键修改：移除外层图标容器，直接渲染 Select 并由 JS 增强 #}
+                    <select name="{{ form.target_asset.name }}" id="{{ form.target_asset.id_for_label }}" required placeholder="-- 输入关键词搜索媒资 --">
+                        <option value="">-- 请选择要关联的媒资 --</option>
+                        {% for x, y in form.fields.target_asset.choices %}
+                            <option value="{{ x }}" {% if form.fields.target_asset.initial == x %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <p class="mt-3 text-sm text-gray-500 flex items-start">
+                        <span class="material-symbols-outlined text-sm mr-1.5 text-gray-400 mt-0.5">search</span>
+                        <span>支持搜索过滤。请确保所选资产下已存在对应的媒体文件（如 ep01, ep02...）。</span>
+                    </p>
+                </div>
+
+            </div>
+
+            {# --- 底部按钮区 --- #}
+            <div class="mt-12 pt-6 border-t border-gray-100 flex items-center justify-end gap-4">
+                <a href="{% url 'admin:workflow_annotationproject_changelist' %}"
+                   class="inline-flex items-center justify-center px-6 py-2.5 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-200 transition-colors">
+                    取消
+                </a>
+
+                <button type="submit"
+                        class="inline-flex items-center justify-center px-6 py-2.5 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors">
+                    <span class="material-symbols-outlined text-xl mr-2">rocket_launch</span>
+                    开始导入并关联
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# --- 初始化 Tom Select 脚本 --- #}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        new TomSelect('#{{ form.target_asset.id_for_label }}', {
+            create: false,
+            sortField: {
+                field: "text",
+                direction: "asc"
+            },
+            placeholder: "请输入关键词搜索...",
+            allowEmptyOption: true,
+        });
+    });
+</script>
+{% endblock %}

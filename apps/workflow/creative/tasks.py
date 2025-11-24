@@ -56,8 +56,9 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
             raise ValueError("找不到关联的 InferenceProject")
 
         # 3. 准备基础元数据
-        series_id_to_use = str(inference_project.id)
-        series_name = project.asset.title
+        # [修正 1] 直接使用 Asset 的 ID 和 Title，与 Cloud 端新接口保持一致
+        asset_id = str(project.asset.id)
+        asset_name = project.asset.title
 
         # 4. [关键] 获取云端蓝图路径 (Blueprint Path)
         # 尝试从 Inference 工作流中重用已上传的 blueprint
@@ -119,8 +120,8 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         scope_value = [config.get('scope_start', 1), config.get('scope_end', 5)]
 
         payload = {
-            "series_name": series_name,
-            "series_id": series_id_to_use,
+            "asset_name": asset_name,  # 原 series_name
+            "asset_id": asset_id,      # 原 series_id
             "blueprint_path": blueprint_path,
             #"output_path": cloud_output_path,
 
@@ -205,6 +206,13 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
         project.save()
 
         logger.info(f"[CreativeFinal 1] 步骤 1 (解说词) 已成功 (Project: {project.id})！")
+
+        # [新增] 自动化链式触发
+        if project.auto_config:
+            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 2 (配音)...")
+            audio_config = project.auto_config.get('audio', {})
+            # 自动触发下一个 Task
+            start_audio_task.delay(project_id=str(project.id), config=audio_config)
     except Exception as e:
         logger.error(f"[CreativeFinal 1] Job {job_id} 最终化处理失败: {e}", exc_info=True)
         if job: job.fail(); job.save()
@@ -424,6 +432,14 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
         project.save()
 
         logger.info(f"[CreativeFinal 2] 步骤 2 (配音) 已成功 (Project: {project.id})！")
+
+        # [新增] 自动化链式触发
+        if project.auto_config:
+            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 3 (剪辑脚本)...")
+            # Edit 步骤目前不需要复杂配置，或者从 auto_config 取
+            # edit_config = project.auto_config.get('edit', {})
+            start_edit_script_task.delay(project_id=str(project.id))
+
     except Exception as e:
         logger.error(f"[CreativeFinal 2] Job {job_id} 最终化处理失败: {e}", exc_info=True)
         if job: job.fail(); job.save()
@@ -568,6 +584,11 @@ def finalize_edit_script_task(job_id: str, cloud_task_data: dict, **kwargs):
         project.save()
 
         logger.info(f"[CreativeFinal 3] 步骤 3 (剪辑脚本) 已成功 (Project: {project.id})！")
+
+        # [新增] 自动化链式触发
+        if project.auto_config:
+            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 4 (最终合成)...")
+            start_synthesis_task.delay(project_id=str(project.id))
 
     except Exception as e:
         logger.error(f"[CreativeFinal 3] Job {job_id} 最终化处理失败: {e}", exc_info=True)

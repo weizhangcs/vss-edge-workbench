@@ -1,17 +1,21 @@
 # 文件路径: apps/workflow/creative/admin.py
 
 import logging
+
+from django import forms
 from django.contrib import admin, messages
 from django.http import HttpRequest
 from django.urls import path, reverse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
 from .forms import CreativeProjectForm, NarrationConfigurationForm, DubbingConfigurationForm # 导入新表单
-from .projects import CreativeProject
+from .projects import CreativeProject, CreativeBatch
 from .jobs import CreativeJob
 
+from .services.orchestrator import CreativeOrchestrator # 导入新服务
+from .forms import BatchCreationForm
 # [!!!] 注意：我们不再从这里导入 tasks
 
 logger = logging.getLogger(__name__)
@@ -252,3 +256,58 @@ class CreativeProjectAdmin(ModelAdmin):
             return format_html('<a href="{}" class="button">返回推理</a>', url)
         except Exception:
             return "N/A"
+
+
+@admin.register(CreativeBatch)
+class CreativeBatchAdmin(ModelAdmin):
+    list_display = ('__str__', 'inference_project', 'total_count', 'created', 'view_projects')
+
+    # 关闭默认的 Add 按钮，因为我们要用自定义页面
+    def has_add_permission(self, request):
+        return False
+
+    @admin.display(description="查看详情")
+    def view_projects(self, obj):
+        url = reverse('admin:workflow_creativeproject_changelist') + f"?batch_id={obj.id}"
+        return format_html('<a href="{}" class="button">查看生成结果</a>', url)
+
+    # 注册自定义 URL
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('orchestrator/', self.admin_site.admin_view(self.orchestrator_view),
+                 name='creative_batch_orchestrator'),
+        ]
+        return custom_urls + urls
+
+    # 编排器视图
+    def orchestrator_view(self, request):
+        if request.method == 'POST':
+            form = BatchCreationForm(request.POST)
+            if form.is_valid():
+                data = form.cleaned_data
+                count = data.pop('count')
+                inf_proj = data.pop('inference_project')
+
+                # 这里的 data 剩余部分就是 fixed_params
+                # 我们需要过滤掉空值，空值代表随机
+                fixed_params = {k: v for k, v in data.items() if v}
+
+                try:
+                    orchestrator = CreativeOrchestrator(inference_project_id=str(inf_proj.id))
+                    batch = orchestrator.create_batch(count, fixed_params)
+
+                    self.message_user(request, f"成功启动批量任务！批次ID: {batch.id}，共 {count} 个项目正在生成中。",
+                                      messages.SUCCESS)
+                    return redirect('admin:workflow_creativebatch_changelist')
+                except Exception as e:
+                    self.message_user(request, f"启动失败: {e}", messages.ERROR)
+        else:
+            form = BatchCreationForm()
+
+        context = {
+            **self.admin_site.each_context(request),
+            'form': form,
+            'title': '批量创作编排器 (Orchestrator)',
+        }
+        return render(request, 'admin/workflow/project/creative/orchestrator_form.html', context)

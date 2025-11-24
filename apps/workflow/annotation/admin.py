@@ -1,11 +1,12 @@
 # 文件路径: apps/workflow/annotation/admin.py
-
+from datetime import datetime
 import logging
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.paginator import Paginator
+from django.shortcuts import redirect, render
 from django.utils.html import format_html
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse, path
 from django import forms
 from django.db import models
@@ -17,8 +18,21 @@ from unfold.widgets import UnfoldAdminTextareaWidget
 from ..common.baseJob import BaseJob
 from ..models import AnnotationProject, AnnotationJob
 from ..widgets import FileFieldWithActionButtonWidget
+from ..services.portable import ProjectPortableService # 导入新服务
+from apps.media_assets.models import Asset
 
 logger = logging.getLogger(__name__)
+
+# --- 定义一个简单的上传表单 ---
+class ImportProjectForm(forms.Form):
+    zip_file = forms.FileField(label="项目导出包 (.zip)")
+    target_asset = forms.ModelChoiceField(
+        queryset=Asset.objects.all().order_by('-created'),
+        label="挂载目标资产 (Target Asset)",
+        required=True,
+        empty_label="-- 请选择要关联的媒资 --",
+        help_text="<span class='text-red-500'>注意：</span>系统将尝试根据“媒体文件序号 (Sequence)”自动恢复标注任务。请确保所选资产下已存在对应的媒体文件（如 ep01, ep02...）。"
+    )
 
 def get_project_tabs(request: HttpRequest) -> list[dict]:
     """
@@ -237,29 +251,40 @@ class AnnotationProjectAdmin(ModelAdmin):
         'status',  # 状态字段总是只读，由后台任务更新
     )
 
-    def get_readonly_fields(self, request, obj=None):
-        """
-        动态设置只读字段。
-        - 'add' 视图 (obj is None): 只读 'status'
-        - 'change' 视图 (obj is not None): 所有产出物字段也变为只读
-        """
-        if obj:  # 这是一个 'change' 视图
-            # 返回所有基础只读字段，并动态添加所有产出物字段
-            return self.readonly_fields + (
-                'label_studio_project_id',
-            )
+    actions = ['export_project_action']
 
-        # 这是一个 'add' 视图
-        return self.readonly_fields
+    # --- 1. 导出功能 (Action) ---
+    @admin.action(description="📦 导出项目包 (用于测试/迁移)")
+    def export_project_action(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, "一次只能导出一个项目。", level=messages.WARNING)
+            return
 
+        project = queryset.first()
+        try:
+            zip_data = ProjectPortableService.export_annotation_project(str(project.id))
+
+            # 返回文件下载响应
+            filename = f"annotation_project_{project.name}_{datetime.now().strftime('%Y%m%d')}.zip"
+            response = HttpResponse(zip_data, content_type='application/zip')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+        except Exception as e:
+            self.message_user(request, f"导出失败: {e}", level=messages.ERROR)
+
+    # --- 2. 导入功能 (Custom View) ---
     def get_urls(self):
         """
-        注册我们的自定义 Tab 视图 URL。
-        我们必须使用 get_urls，因为这些视图是 Admin 类的方法，
-        它们需要访问 'self' 和调用 'super().changeform_view()'。
+        [已合并] 注册自定义 URL：包含 导入功能 和 Tab页切换
         """
         urls = super().get_urls()
         custom_urls = [
+            # --- 1. 导入项目功能的 URL ---
+            path('import-project/', self.admin_site.admin_view(self.import_project_view),
+                 name='workflow_annotationproject_import'),
+
+            # --- 2. Tab 页切换的 URLs ---
             path(
                 '<uuid:object_id>/change/tab-l1/',
                 self.admin_site.admin_view(self.tab_l1_view),
@@ -277,6 +302,50 @@ class AnnotationProjectAdmin(ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def import_project_view(self, request):
+        if request.method == 'POST':
+            form = ImportProjectForm(request.POST, request.FILES)
+            if form.is_valid():
+                zip_file = request.FILES['zip_file']
+                target_asset = form.cleaned_data['target_asset']  # 获取用户选择的 Asset 对象
+
+                try:
+                    # [修改] 将 target_asset 传递给服务层
+                    new_project = ProjectPortableService.import_annotation_project(
+                        zip_bytes=zip_file.read(),
+                        target_asset=target_asset
+                    )
+                    self.message_user(request, f"项目 '{new_project.name}' 已成功导入并挂载到《{target_asset.title}》！",
+                                      level=messages.SUCCESS)
+                    return redirect('admin:workflow_annotationproject_changelist')
+                except Exception as e:
+                    self.message_user(request, f"导入失败: {e}", level=messages.ERROR)
+        else:
+            form = ImportProjectForm()
+
+        context = {
+            **self.admin_site.each_context(request),
+            'form': form,
+            'title': '导入标注项目包',
+            'opts': self.model._meta,
+        }
+        return render(request, 'admin/workflow/project/annotation/import_form.html', context)
+
+    def get_readonly_fields(self, request, obj=None):
+        """
+        动态设置只读字段。
+        - 'add' 视图 (obj is None): 只读 'status'
+        - 'change' 视图 (obj is not None): 所有产出物字段也变为只读
+        """
+        if obj:  # 这是一个 'change' 视图
+            # 返回所有基础只读字段，并动态添加所有产出物字段
+            return self.readonly_fields + (
+                'label_studio_project_id',
+            )
+
+        # 这是一个 'add' 视图
+        return self.readonly_fields
 
     def add_view(self, request, form_url="", extra_context=None):
         """

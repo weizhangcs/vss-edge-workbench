@@ -139,7 +139,7 @@ def start_rag_deployment_task(job_id: str, **kwargs):
         payload = {
             "blueprint_input_path": job.cloud_blueprint_path,
             "facts_input_path": job.cloud_facts_path,
-            "series_id": str(project.id)
+            "asset_id": str(project.asset.id)
         }
         success, task_data = service.create_task("DEPLOY_RAG_CORPUS", payload)
         if not success:

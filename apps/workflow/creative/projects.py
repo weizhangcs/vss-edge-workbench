@@ -4,6 +4,7 @@ from django.db import models
 from django_fsm import FSMField, transition
 from model_utils import Choices
 
+from model_utils.models import TimeStampedModel
 from apps.workflow.common.baseProject import BaseProject
 from apps.workflow.inference.projects import InferenceProject
 
@@ -13,6 +14,28 @@ def get_creative_output_upload_path(instance, filename):
     # instance 是 CreativeProject
     return f'creative/{instance.id}/outputs/{filename}'
 
+class CreativeBatch(TimeStampedModel):
+    """
+    (新) 创作批次。
+    用于管理和监控批量生成的创作项目。
+    """
+    inference_project = models.ForeignKey(
+        InferenceProject,
+        on_delete=models.PROTECT,
+        verbose_name="源推理项目"
+    )
+    total_count = models.PositiveIntegerField(verbose_name="计划生成数量")
+
+    # 记录用户当时选择的策略，方便回溯（例如：{"style": "random", "count": 10}）
+    batch_strategy = models.JSONField(default=dict, verbose_name="编排策略快照")
+
+    def __str__(self):
+        return f"Batch {self.id} - {self.inference_project.name} ({self.total_count} items)"
+
+    class Meta:
+        verbose_name = "批量创作任务"
+        verbose_name_plural = "批量创作任务"
+        ordering = ['-created']
 
 class CreativeProject(BaseProject):
     """
@@ -55,6 +78,27 @@ class CreativeProject(BaseProject):
         on_delete=models.PROTECT,  # 必须有推理项目才能创作
         related_name='creative_projects',
         verbose_name="关联的推理项目"
+    )
+
+    # [新增] 关联批次 (可选，因为手动创建的项目没有批次)
+    batch = models.ForeignKey(
+        CreativeBatch,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='projects',
+        verbose_name="所属批次"
+    )
+
+    # [新增] 自动化配置
+    # 如果此字段存在，Task 完成后会自动读取这里的参数触发下一步
+    # 结构示例: {
+    #   "narration": { ... },
+    #   "audio": { "template": "...", "speed": 1.2 },
+    #   "edit": { ... }
+    # }
+    auto_config = models.JSONField(
+        null=True, blank=True,
+        verbose_name="自动化全流程配置 (Auto-Pilot)"
     )
 
     # --- 步骤 1 产出物 ---
@@ -102,3 +146,5 @@ class CreativeProject(BaseProject):
         verbose_name = "L4 创作项目"
         verbose_name_plural = "L4 创作项目"
         ordering = ['-modified']
+
+

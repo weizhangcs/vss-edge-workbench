@@ -28,7 +28,8 @@ class LabelStudioService:
             settings_obj = None
 
             # 内部 URL 保持从 .env 读取
-        self.BASE_URL = config('LABEL_STUDIO_URL', default='http://label-studio:8080')
+        #self.BASE_URL = config('LABEL_STUDIO_PUBLIC_URL', default='http://localhost:8081')
+        self.BASE_URL = config('LABEL_STUDIO_INTERNAL_URL', default='http://label-studio:8080')
 
         # [CRITICAL FIX] 从数据库模型中获取 Token，如果数据库未就绪，则为 None
         self.ACCESS_TOKEN = getattr(settings_obj, 'label_studio_access_token', None)
@@ -65,7 +66,24 @@ class LabelStudioService:
                 "label_config": label_config_xml
             }
 
-            project_response = requests.post(f"{self.BASE_URL}/api/projects", json=project_payload, headers=self.headers)
+            # [DEBUG 1] 打印发送前的关键信息 (检查 URL 和 Token 格式是否正确)
+            # 注意：为了安全，这里只打印 Token 的前10位和长度，防止日志泄露完整 Token
+            url = f"{self.BASE_URL}/api/projects"
+
+            auth_header = self.headers.get("Authorization", "")
+            logger.info(f"--- [LS DEBUG] 准备发送请求 ---")
+            logger.info(f"URL: {url}")
+            logger.info(f"Auth Header Length: {len(auth_header)}")
+            logger.info(f"Auth Header Preview: {auth_header[:15]}...")
+            project_response = requests.post(url, json=project_payload, headers=self.headers)
+            #project_response = requests.post(f"{self.BASE_URL}/api/projects", json=project_payload, headers=self.headers)
+
+            # [DEBUG 2] 捕获并打印服务器返回的错误详情
+            if project_response.status_code >= 400:
+                logger.error("!!! [LS DEBUG] 请求被拒绝 !!!")
+                logger.error(f"Status Code: {project_response.status_code}")
+                logger.error(f"Response Body: {project_response.text}")  # <--- 这是最关键的信息
+
             project_response.raise_for_status()
             project_data = project_response.json()
             project_id = project_data.get("id")
