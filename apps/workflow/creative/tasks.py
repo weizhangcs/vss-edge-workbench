@@ -60,30 +60,37 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         asset_id = str(project.asset.id)
         asset_name = project.asset.title
 
-        # 4. [关键] 获取云端蓝图路径 (Blueprint Path)
-        # 尝试从 Inference 工作流中重用已上传的 blueprint
+        # 4. [修正] 获取云端蓝图路径 (Blueprint Path)
+        # 策略变更：优先重新上传本地文件，确保 Cloud 端文件存在。
+        # 只有当本地文件丢失时，才尝试复用旧的云端路径作为备选。
         blueprint_path = None
+        service = CloudApiService()
+
+        # 获取本地蓝图文件对象
+        local_bp = inference_project.annotation_project.final_blueprint_file
+
+        # 查找是否有旧的云端记录 (仅作备用)
         inference_job = inference_project.jobs.filter(
             cloud_blueprint_path__isnull=False
         ).order_by('-modified').first()
 
-        service = CloudApiService()
-
-        if inference_job and inference_job.cloud_blueprint_path:
-            blueprint_path = inference_job.cloud_blueprint_path
-            logger.info(f"[NarrationTask] 重用已有的蓝图路径: {blueprint_path}")
-        else:
-            # 如果没找到，尝试从本地上传
-            local_bp = inference_project.annotation_project.final_blueprint_file
-            if local_bp and local_bp.path:
-                logger.info(f"[NarrationTask] 未找到云端蓝图，正在上传本地蓝图...")
-                success, path = service.upload_file(Path(local_bp.path))
-                if success:
-                    blueprint_path = path
-                else:
-                    raise Exception(f"蓝图上传失败: {path}")
+        # --- 核心修改开始 ---
+        if local_bp and local_bp.path and Path(local_bp.path).exists():
+            logger.info(f"[NarrationTask] 正在上传本地蓝图: {local_bp.path}")
+            success, path = service.upload_file(Path(local_bp.path))
+            if success:
+                blueprint_path = path
             else:
-                raise ValueError("无法获取蓝图路径 (既无云端记录，也无本地文件)")
+                raise Exception(f"蓝图上传失败: {path}")
+
+        elif inference_job and inference_job.cloud_blueprint_path:
+            # 只有本地文件没了，才死马当活马医，试着用旧的
+            blueprint_path = inference_job.cloud_blueprint_path
+            logger.warning(f"[NarrationTask] 本地蓝图缺失，尝试重用旧云端路径: {blueprint_path}")
+
+        else:
+            raise ValueError("无法获取蓝图路径 (既无本地文件，也无云端记录)")
+        # --- 核心修改结束 ---
 
         # 5. 创建 Job 记录
         job = CreativeJob.objects.create(

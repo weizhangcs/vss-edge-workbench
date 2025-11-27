@@ -1,6 +1,6 @@
 # 文件路径: apps/workflow/annotation/projects.py
 
-from django.db import models
+from django.db import models, transaction
 from ..common.baseProject import BaseProject
 
 
@@ -104,11 +104,21 @@ class AnnotationProject(BaseProject):
         自动触发一个后台任务来创建 Label Studio 项目和 AnnotationJob 记录。
         """
         from .tasks import create_label_studio_project_task
+
+        # 1. 检查是否是新建记录 (必须在 super().save() 之前判断)
         is_new = self._state.adding
+
+        # 2. 执行保存 (此时数据已写入事务，但尚未提交)
         super().save(*args, **kwargs)
 
+        # 3. 事务提交后触发任务
         if is_new:
-            create_label_studio_project_task.delay(project_id=str(self.id))
+            # [核心修正] 使用 transaction.on_commit
+            # 只有当当前的数据库事务成功 Commit 后，这个 lambda 才会执行。
+            # 这确保了当 Celery Worker 收到任务去查询数据库时，数据一定已经存在了。
+            transaction.on_commit(
+                lambda: create_label_studio_project_task.delay(project_id=str(self.id))
+            )
 
     class Meta:
         verbose_name = "标注项目"

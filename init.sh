@@ -89,6 +89,15 @@ read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL
 read -s -p "Enter the initial Django superuser password: " DJANGO_SUPERUSER_PASSWORD
 echo
 
+# [新增] Cloud API 交互配置模块
+echo
+echo "--- Cloud API Configuration (VSS-Cloud) ---"
+echo "Please enter the connection details for the Cloud Orchestrator."
+read -p "Cloud API Base URL (e.g., http://cloud.example.com:8000): " CLOUD_API_BASE_URL
+read -p "Cloud Instance ID (Your Edge unique ID): " CLOUD_INSTANCE_ID
+read -p "Cloud API Key: " CLOUD_API_KEY
+echo
+
 # [配置移至 DB]: LABEL_STUDIO_ACCESS_TOKEN 移至 DB，在此处将其值设为空
 LABEL_STUDIO_ACCESS_TOKEN=""
 
