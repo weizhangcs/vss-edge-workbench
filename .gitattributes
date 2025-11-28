@@ -1,0 +1,14 @@
+# .gitattributes
+
+# 默认行为：自动处理文本文件，但在检出时转换为本地系统的换行符（不推荐跨平台协作）
+# * text=auto
+
+# 【强制】所有 Shell 脚本必须使用 LF，严禁转换为 CRLF
+*.sh text eol=lf
+
+# 【强制】Docker 相关文件使用 LF
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+
+# 【强制】Python 文件使用 LF (虽然 Python 对此宽容，但统一更好)
+*.py text eol=lf
