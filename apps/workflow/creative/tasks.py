@@ -3,6 +3,7 @@
 import logging
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 from celery import shared_task
 from django.core.files.base import ContentFile
@@ -22,143 +23,176 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
-# 1. 生成解说词 (Narration V2) - 完整实现
+# 1. 生成解说词 (Narration V3) - 最终事实版 (v1.2.0-alpha.3+)
 # ==============================================================================
 
 @shared_task(name="apps.workflow.creative.tasks.start_narration_task")
 def start_narration_task(project_id: str, config: dict = None, **kwargs):
     """
-    (V2 升级版)
-    由 Admin 视图触发，开始“步骤 1：生成解说词”。
-    支持通过 config 参数传递 Narration V2 接口所需的复杂控参。
+    (V3 Final) 启动解说词生成任务。
+    严格对应 API 文档 payload 结构。
     """
     job = None
     project = None
 
-    # 1. 如果没有传入 config (兼容旧调用或手动调试)，提供默认值
+    # 1. 默认配置兜底 (若 config 为空)
     if not config:
         config = {
             "narrative_focus": "romantic_progression",
             "scope_start": 1,
             "scope_end": 5,
             "style": "humorous",
-            "target_duration_minutes": 5,
-            "perspective": "third_person"
+            "perspective": "third_person",
+            "target_duration_minutes": 3,
+            "overflow_tolerance": 0.0,
+            "speaking_rate": 4.2,
+            "rag_top_k": 50
         }
 
-    try:
-        # 2. 获取项目并进行状态检查
-        project = CreativeProject.objects.get(id=project_id)
+    # [类型清洗] Decimal -> float (防止 JSON 序列化报错)
+    if config:
+        for k, v in config.items():
+            if isinstance(v, Decimal):
+                config[k] = float(v)
 
-        # 检查前置条件：必须有关联的推理项目
+    try:
+        # --- 资源准备 & 状态检查 ---
+        project = CreativeProject.objects.get(id=project_id)
         inference_project = project.inference_project
         if not inference_project:
-            raise ValueError("找不到关联的 InferenceProject")
+            raise ValueError("未找到关联的 InferenceProject")
 
-        # 3. 准备基础元数据
-        # [修正 1] 直接使用 Asset 的 ID 和 Title，与 Cloud 端新接口保持一致
         asset_id = str(project.asset.id)
         asset_name = project.asset.title
 
-        # 4. [修正] 获取云端蓝图路径 (Blueprint Path)
-        # 策略变更：优先重新上传本地文件，确保 Cloud 端文件存在。
-        # 只有当本地文件丢失时，才尝试复用旧的云端路径作为备选。
-        blueprint_path = None
+        # --- 蓝图上传/获取逻辑 ---
         service = CloudApiService()
+        blueprint_path = None
 
-        # 获取本地蓝图文件对象
+        # 优先上传本地最新蓝图
         local_bp = inference_project.annotation_project.final_blueprint_file
-
-        # 查找是否有旧的云端记录 (仅作备用)
-        inference_job = inference_project.jobs.filter(
-            cloud_blueprint_path__isnull=False
-        ).order_by('-modified').first()
-
-        # --- 核心修改开始 ---
         if local_bp and local_bp.path and Path(local_bp.path).exists():
-            logger.info(f"[NarrationTask] 正在上传本地蓝图: {local_bp.path}")
             success, path = service.upload_file(Path(local_bp.path))
             if success:
                 blueprint_path = path
             else:
                 raise Exception(f"蓝图上传失败: {path}")
-
-        elif inference_job and inference_job.cloud_blueprint_path:
-            # 只有本地文件没了，才死马当活马医，试着用旧的
-            blueprint_path = inference_job.cloud_blueprint_path
-            logger.warning(f"[NarrationTask] 本地蓝图缺失，尝试重用旧云端路径: {blueprint_path}")
-
         else:
-            raise ValueError("无法获取蓝图路径 (既无本地文件，也无云端记录)")
-        # --- 核心修改结束 ---
+            # 备用：尝试查找旧的云端路径
+            inference_job = inference_project.jobs.filter(
+                cloud_blueprint_path__isnull=False
+            ).order_by('-modified').first()
+            if inference_job and inference_job.cloud_blueprint_path:
+                blueprint_path = inference_job.cloud_blueprint_path
+                logger.warning("[NarrationTask] 使用缓存的云端蓝图路径。")
+            else:
+                raise ValueError("无法获取蓝图文件 (本地缺失且无云端记录)")
 
-        # 5. 创建 Job 记录
+        # --- 创建 Job ---
         job = CreativeJob.objects.create(
             project=project,
             job_type=CreativeJob.TYPE.GENERATE_NARRATION,
             status=BaseJob.STATUS.PENDING,
-            input_params=config  # 记录用户的配置参数
+            input_params=config
         )
-
-        # 更新状态并保存 (PENDING -> PROCESSING)
         job.start()
         job.save()
-
         project.status = CreativeProject.STATUS.NARRATION_RUNNING
         project.save()
 
     except Exception as e:
-        logger.error(f"[NarrationTask] 无法启动解说词任务 (Project: {project_id}): {e}", exc_info=True)
-        if job:
-            job.fail()
-            job.save()
-        if project:
-            project.status = CreativeProject.STATUS.FAILED
-            project.save()
+        logger.error(f"[NarrationTask] 初始化失败: {e}", exc_info=True)
+        if job: job.fail(); job.save()
+        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
         return
 
-    # 6. 调用云端 API
+    # --- 构造 V3 API Payload ---
     try:
-        # 构造 V2 格式的 Payload
-        # 注意：output_path 我们定义一个云端相对路径，方便后续下载或流转
-        cloud_output_path = f"outputs/narrations/{project.id}/{job.id}_script.json"
+        # 1. 提取基础参数
+        narrative_focus = config.get('narrative_focus', 'general')
+        style = config.get('style', 'objective')
+        perspective = config.get('perspective', 'third_person')
 
-        # 处理 scope 格式 (Array)
-        scope_value = [config.get('scope_start', 1), config.get('scope_end', 5)]
+        # 2. 构造 Custom Prompts (字典)
+        custom_prompts = {}
+        if narrative_focus == 'custom':
+            txt = config.get('custom_narrative_prompt', '').strip()
+            if txt: custom_prompts['narrative_focus'] = txt
 
-        payload = {
-            "asset_name": asset_name,  # 原 series_name
-            "asset_id": asset_id,      # 原 series_id
-            "blueprint_path": blueprint_path,
-            #"output_path": cloud_output_path,
+        if style == 'custom':
+            txt = config.get('custom_style_prompt', '').strip()
+            if txt: custom_prompts['style'] = txt
 
-            # V2 核心控参
-            "service_params": {
-                "control_params": {
-                    "narrative_focus": config.get('narrative_focus', 'romantic_progression'),
-                    "scope": {
-                        "type": "episode_range",
-                        "value": scope_value
-                    },
-                    "style": config.get('style', 'humorous'),
-                    "target_duration_minutes": config.get('target_duration_minutes', 5),
-                    "perspective": config.get('perspective', 'third_person')
-                }
-            }
+        # 3. 构造 Character Focus
+        char_str = config.get('character_focus', '')
+        char_list = [c.strip() for c in char_str.split(',') if c.strip()]
+        character_focus_struct = {
+            "mode": "specific" if char_list else "all",
+            "characters": char_list
         }
 
-        # 发送请求
-        success, task_data = service.create_task("GENERATE_NARRATION", payload)
-        if not success:
-            raise Exception(task_data.get('message', 'Failed to create GENERATE_NARRATION task'))
+        # 4. 构造 Control Params
+        control_params = {
+            "narrative_focus": narrative_focus,
+            "style": style,
+            "perspective": perspective,
+            "target_duration_minutes": int(config.get('target_duration_minutes', 3)),
+            "scope": {
+                "type": "episode_range",
+                "value": [
+                    int(config.get('scope_start', 1)),
+                    int(config.get('scope_end', 5))
+                ]
+            },
+            "character_focus": character_focus_struct
+        }
 
-        # 更新 Job 信息
+        # 第一人称必须传 perspective_character
+        if perspective == 'first_person':
+            p_char = config.get('perspective_character', '').strip()
+            if p_char:
+                control_params['perspective_character'] = p_char
+            else:
+                logger.warning("[NarrationTask] 第一人称视角未指定角色名，可能导致生成错误。")
+
+        if custom_prompts:
+            control_params['custom_prompts'] = custom_prompts
+
+        # 5. 构造 Service Params
+        service_params = {
+            "lang": "zh",
+            "model": "gemini-2.5-pro",
+            "debug": True,
+            "rag_top_k": int(config.get('rag_top_k', 50)),
+            "speaking_rate": float(config.get('speaking_rate', 4.2)),
+            "overflow_tolerance": float(config.get('overflow_tolerance', 0.0)),
+            "control_params": control_params
+        }
+
+        # 6. 最终 Payload (键名 blueprint_path)
+        payload = {
+            "asset_name": asset_name,
+            "asset_id": asset_id,
+            "blueprint_path": blueprint_path,  # [Confirm: Doc Section 2]
+            "service_params": service_params
+        }
+
+        logger.info(f"[NarrationTask] Payload Preview:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+
+        # --- 发送请求 ---
+        service = CloudApiService()
+        success, task_data = service.create_task("GENERATE_NARRATION", payload)
+
+        if not success:
+            msg = task_data.get('message', 'API Error')
+            raise Exception(f"Create Task Failed: {msg}")
+
         job.cloud_task_id = task_data['id']
         job.save()
 
-        logger.info(f"[NarrationTask] 成功提交任务 TaskID: {job.cloud_task_id}")
+        logger.info(f"[NarrationTask] Task Created: {job.cloud_task_id}")
 
-        # 7. 触发轮询
+        # 触发轮询
         poll_cloud_task_status.delay(
             job_id=job.id,
             cloud_task_id=task_data['id'],
@@ -167,25 +201,22 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         )
 
     except Exception as e:
-        logger.error(f"[NarrationTask] API 调用失败 (Job: {job.id}): {e}", exc_info=True)
+        logger.error(f"[NarrationTask] 执行异常: {e}", exc_info=True)
         job.fail()
         job.save()
         project.status = CreativeProject.STATUS.FAILED
         project.save()
 
-
 @shared_task(name="apps.workflow.creative.tasks.finalize_narration_task")
 def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
     """
-    (新) 
-    “步骤 1：生成解说词”成功后的回调。
+    (V3 适配) “步骤 1：生成解说词”成功后的回调。
     """
     job = None
     try:
         job = CreativeJob.objects.get(id=job_id)
         project = job.project
 
-        # [新增幂等性检查] 如果任务已完成，则直接安全退出
         if job.status == BaseJob.STATUS.COMPLETED:
             logger.warning(f"[CreativeFinal 1] Job {job_id} 状态已是 COMPLETED，跳过重复执行。")
             return
@@ -195,31 +226,40 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
 
     try:
         service = CloudApiService()
-        download_url = cloud_task_data.get("download_url")  # [cite: 25]
+
+        # [V3 适配] 尝试从 result 字段直接获取 JSON (如果 API 直接返回了结果)
+        # 或者从 download_url 下载
+        result_data = cloud_task_data.get("result", {})
+        download_url = cloud_task_data.get("download_url")
+
+        content_bytes = None
 
         if download_url:
-            success, content = service.download_task_result(download_url)  # [cite: 26, 27]
-            if success:
-                # [cite: 122]
-                project.narration_script_file.save(f"narration_script_{job.id}.json", ContentFile(content), save=False)
-            else:
+            success, content_bytes = service.download_task_result(download_url)
+            if not success:
                 raise Exception(f"下载解说词失败: {download_url}")
+        elif result_data and "narration_script" in result_data:
+            # 如果 result 直接包含了数据，将其转为 bytes
+            content_bytes = json.dumps(result_data, ensure_ascii=False, indent=2).encode('utf-8')
         else:
-            raise Exception("云端任务完成，但未提供 download_url")
+            raise Exception("云端任务完成，但未提供 download_url 或有效的 result 数据")
 
-        job.complete();
+        # 保存文件
+        project.narration_script_file.save(f"narration_script_{job.id}.json", ContentFile(content_bytes), save=False)
+
+        job.complete()
         job.save()
         project.status = CreativeProject.STATUS.NARRATION_COMPLETED
         project.save()
 
         logger.info(f"[CreativeFinal 1] 步骤 1 (解说词) 已成功 (Project: {project.id})！")
 
-        # [新增] 自动化链式触发
+        # 自动化链式触发 (如果配置了 auto_config)
         if project.auto_config:
             logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 2 (配音)...")
             audio_config = project.auto_config.get('audio', {})
-            # 自动触发下一个 Task
             start_audio_task.delay(project_id=str(project.id), config=audio_config)
+
     except Exception as e:
         logger.error(f"[CreativeFinal 1] Job {job_id} 最终化处理失败: {e}", exc_info=True)
         if job: job.fail(); job.save()

@@ -21,49 +21,54 @@ class CreativeProjectForm(forms.ModelForm):
 
 class NarrationConfigurationForm(forms.Form):
     """
-    步骤 1：解说词生成配置表单 (Narration V2)
+    步骤 1：解说词生成配置表单 (Narration V3 - v1.2.0-alpha.3+)
+    严格对齐 VSS Cloud API 文档。
     """
+
+    # --- 1. 核心选项定义 ---
     NARRATIVE_FOCUS_CHOICES = [
-        ('romantic_progression', '情感推进 (Romantic)'),
-        ('career_growth', '搞事业/成长 (Career)'),
-        ('suspense_thriller', '悬疑/反转 (Suspense)'),
-        ('dramatic_conflict', '强冲突/撕逼 (Conflict)'),
+        ('romantic_progression', '感情线 (Romantic Progression)'),
+        ('business_success', '事业/复仇线 (Business/Revenge)'),
+        ('suspense_reveal', '悬疑解密 (Suspense Reveal)'),
+        ('character_growth', '人物成长 (Character Growth)'),
+        ('general', '通用剧情概览 (General)'),
+        ('custom', '★ 自定义意图 (Custom)'),
     ]
 
     STYLE_CHOICES = [
-        ('humorous', '幽默搞笑 (Humorous)'),
-        ('emotional', '深情治愈 (Emotional)'),
-        ('suspense', '悬疑紧张 (Suspense)'),
-        ('straight', '直白叙述 (Straight)'),
+        ('humorous', '幽默吐槽 (Humorous)'),
+        ('emotional', '深情电台 (Emotional)'),
+        ('suspense', '悬疑惊悚 (Suspense)'),
+        ('objective', '客观纪录 (Objective)'),
+        ('custom', '★ 自定义人设 (Custom)'),
     ]
 
     PERSPECTIVE_CHOICES = [
-        ('third_person', '上帝视角 (第三人称)'),
-        ('first_person', '角色沉浸 (第一人称)'),
+        ('third_person', '上帝视角 (Third Person)'),
+        ('first_person', '角色第一人称 (First Person)'),
     ]
+
+    # 基于文档 3.1 章节
+    TOLERANCE_STRATEGIES = [
+        ('-0.15', '强制留白 (Strict -15%) - 适合纯解说'),
+        ('0.0', '严格对齐 (Standard) - 默认'),
+        ('0.20', '允许溢出 (Loose +20%) - 适合混剪'),
+    ]
+
+    # --- 2. 创作控制参数 (Control Params) ---
 
     narrative_focus = forms.ChoiceField(
         label="叙事焦点",
         choices=NARRATIVE_FOCUS_CHOICES,
         initial='romantic_progression',
         widget=UnfoldAdminSelectWidget,
-        help_text="决定解说词的侧重点。"
     )
 
-    # 这是一个简化的范围输入，实际可能需要更复杂的组件
-    scope_start = forms.IntegerField(
-        label="起始集数",
-        initial=1,
-        min_value=1,
-        widget=UnfoldAdminIntegerFieldWidget,
-        help_text="剧情范围开始"
-    )
-    scope_end = forms.IntegerField(
-        label="结束集数",
-        initial=5,
-        min_value=1,
-        widget=UnfoldAdminIntegerFieldWidget,
-        help_text="剧情范围结束"
+    custom_narrative_prompt = forms.CharField(
+        label="[自定义] 焦点 Prompt",
+        required=False,
+        widget=UnfoldAdminTextareaWidget(attrs={'rows': 2, 'placeholder': '例：深度挖掘《{asset_name}》中...'}),
+        help_text="仅当叙事焦点选择“自定义”时生效。"
     )
 
     style = forms.ChoiceField(
@@ -71,9 +76,16 @@ class NarrationConfigurationForm(forms.Form):
         choices=STYLE_CHOICES,
         initial='humorous',
         widget=UnfoldAdminSelectWidget,
-        help_text="此风格将传递给后续的配音环节。"
     )
 
+    custom_style_prompt = forms.CharField(
+        label="[自定义] 风格 Prompt",
+        required=False,
+        widget=UnfoldAdminTextareaWidget(attrs={'rows': 2, 'placeholder': '例：你是一个毒舌影评人...'}),
+        help_text="仅当解说风格选择“自定义”时生效。"
+    )
+
+    # 视角设定
     perspective = forms.ChoiceField(
         label="叙述视角",
         choices=PERSPECTIVE_CHOICES,
@@ -81,13 +93,61 @@ class NarrationConfigurationForm(forms.Form):
         widget=UnfoldAdminSelectWidget
     )
 
+    perspective_character = forms.CharField(
+        label="视角角色名",
+        required=False,
+        widget=UnfoldAdminTextInputWidget,
+        help_text="<span class='text-red-500'>必填：</span> 若选择“角色第一人称”，必须在此指定角色名称（如“车小小”）。"
+    )
+
+    # 剧情范围
+    scope_start = forms.IntegerField(
+        label="起始集数", initial=1, min_value=1, widget=UnfoldAdminIntegerFieldWidget,
+    )
+    scope_end = forms.IntegerField(
+        label="结束集数", initial=5, min_value=1, widget=UnfoldAdminIntegerFieldWidget,
+    )
+
+    # 角色聚焦
+    character_focus = forms.CharField(
+        label="聚焦角色 (逗号分隔)",
+        required=False,
+        widget=UnfoldAdminTextInputWidget,
+        help_text="例：车小小, 楚昊轩。留空则关注所有主要角色。"
+    )
+
+    # --- 3. 核心服务参数 (Service Params) ---
+
     target_duration_minutes = forms.IntegerField(
         label="目标时长 (分钟)",
-        initial=5,
+        initial=3,
         min_value=1,
-        max_value=20,
+        max_value=30,
+        widget=UnfoldAdminIntegerFieldWidget
+    )
+
+    overflow_tolerance = forms.ChoiceField(
+        label="时长策略 (Tolerance)",
+        choices=TOLERANCE_STRATEGIES,
+        initial='0.0',  # 文档默认值
+        widget=UnfoldAdminSelectWidget,
+        help_text="0.0为严格对齐，负值预留空隙，正值允许溢出。"
+    )
+
+    speaking_rate = forms.DecimalField(
+        label="语速标准 (字/秒)",
+        initial=4.2,  # 文档建议中文默认值
+        max_digits=3,
+        decimal_places=1,
         widget=UnfoldAdminIntegerFieldWidget,
-        help_text="AI 将尝试控制在这个时长附近，过长会自动触发缩写。"
+        help_text="用于估算文案朗读时长。中文建议 4.2。"
+    )
+
+    rag_top_k = forms.IntegerField(
+        label="RAG 检索数量",
+        initial=50,  # 文档默认值
+        widget=UnfoldAdminIntegerFieldWidget,
+        help_text="建议 50-100。"
     )
 
 
