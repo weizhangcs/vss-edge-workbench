@@ -1,11 +1,9 @@
 import json
-import subprocess
 import logging
-from pathlib import Path
+import subprocess
 from datetime import datetime
-from typing import Dict, Any, List
-import os
-from django.db.models import Q
+from pathlib import Path
+from typing import Dict, List
 
 from django.conf import settings
 
@@ -24,22 +22,29 @@ class SynthesisService:
 
     def __init__(self, project_id: str):
         # 使用 MEDIA_ROOT 作为工作区基础，并在其中创建项目专属目录
-        self.base_work_dir = Path(settings.MEDIA_ROOT) / 'creative_synthesis'
+        self.base_work_dir = Path(settings.MEDIA_ROOT) / "creative_synthesis"
         self.base_work_dir.mkdir(exist_ok=True)
         self.work_dir = self.base_work_dir / str(project_id)
         self.work_dir.mkdir(exist_ok=True)
         self.project_id = project_id
 
         try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=True, encoding='utf-8')
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, check=True, encoding="utf-8")
             logger.info("ffmpeg found on system path and is functioning.")
-        except Exception as e:
+        except Exception:
             logger.error("FATAL: ffmpeg not found or not functional.", exc_info=True)
             raise
         logger.info("SynthesisService initialized.")
 
-    def execute(self, editing_script_path: Path, blueprint_path: Path, local_audio_base_dir: Path,
-                source_videos_dir: Path, asset_id: str, **kwargs) -> Path:
+    def execute(
+        self,
+        editing_script_path: Path,
+        blueprint_path: Path,
+        local_audio_base_dir: Path,
+        source_videos_dir: Path,
+        asset_id: str,
+        **kwargs,
+    ) -> Path:
         """
         执行最终合成流程。
 
@@ -52,9 +57,9 @@ class SynthesisService:
         logger.info("开始最终视频合成...")
         try:
             logger.info("正在加载剪辑脚本和Blueprint...")
-            with editing_script_path.open('r', encoding='utf-8') as f:
+            with editing_script_path.open("r", encoding="utf-8") as f:
                 editing_script_json = json.load(f)
-            with blueprint_path.open('r', encoding='utf-8') as f:
+            with blueprint_path.open("r", encoding="utf-8") as f:
                 blueprint_data = json.load(f)
 
             editing_script_data = editing_script_json.get("editing_script", [])
@@ -66,8 +71,9 @@ class SynthesisService:
 
             # --- 核心流程 ---
             final_audio_path = self._create_narration_track(editing_script_data, temp_dir, local_audio_base_dir)
-            final_video_path = self._create_video_track(editing_script_data, blueprint_data, source_videos_dir,
-                                                        temp_dir, asset_id)
+            final_video_path = self._create_video_track(
+                editing_script_data, blueprint_data, source_videos_dir, temp_dir, asset_id
+            )
 
             if not final_audio_path or not final_video_path:
                 raise RuntimeError("Audio or video track generation failed.")
@@ -86,9 +92,9 @@ class SynthesisService:
         logger.debug(f"Executing ffmpeg command for '{log_label}': {' '.join(cmd)}")
         try:
             # 捕获输出，确保 Check=True 会打印 stderr
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding="utf-8")
             if result.stderr:
-                logger.debug(f"ffmpeg stderr for '{log_label}' (Ignored warnings):\n{result.stderr}")
+                logger.debug(f"ffmpeg stderr for '{log_label}' (Ignored warnings): \n{result.stderr}")
         except subprocess.CalledProcessError as e:
             error_message = f"FFMPEG command for '{log_label}' failed with exit code {e.returncode}.\n"
             error_message += f"Command: {' '.join(e.cmd)}\n"
@@ -106,7 +112,7 @@ class SynthesisService:
         # 因此我们需要重新构建它的绝对路径
         audio_paths = []
         for entry in editing_script:
-            audio_rel_path = entry.get('narration_audio_path')
+            audio_rel_path = entry.get("narration_audio_path")
             if audio_rel_path:
                 # 假设 narration_audio_path 已经在 dubbing_script.json 中被更新为 local_audio_path (相对路径)
                 # 实际上，它还是云端路径，我们需要在 CreativeProject 的 dubbing_script_file 中提取 local_audio_path
@@ -134,7 +140,7 @@ class SynthesisService:
 
             audio_files = []
             for entry in editing_script:
-                audio_filename = Path(entry.get('narration_audio_path', '')).name
+                audio_filename = Path(entry.get("narration_audio_path", "")).name
                 local_path = local_audio_base_dir / audio_filename
                 if local_path.is_file():
                     audio_files.append(local_path)
@@ -153,23 +159,36 @@ class SynthesisService:
         output_path = self.work_dir / f"final_audio{file_extension}"
         concat_list_path = temp_dir / "audio_concat_list.txt"
 
-        with concat_list_path.open('w', encoding='utf-8') as f:
+        with concat_list_path.open("w", encoding="utf-8") as f:
             for path in audio_paths:
                 f.write(f"file '{path.resolve()}'\n")
 
         cmd = [
-            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
-            '-i', str(concat_list_path),
-            '-c', 'copy',
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list_path),
+            "-c",
+            "copy",
+            str(output_path),
         ]
         self._run_ffmpeg_command(cmd, "Audio Concatenation")
 
         logger.info(f"✅ 配音音轨合成完毕: {output_path}")
         return output_path
 
-    def _create_video_track(self, editing_script: List[Dict], blueprint_data: Dict, source_videos_dir: Path,
-                            temp_dir: Path, asset_id: str,) -> Path:
+    def _create_video_track(
+        self,
+        editing_script: List[Dict],
+        blueprint_data: Dict,
+        source_videos_dir: Path,
+        temp_dir: Path,
+        asset_id: str,
+    ) -> Path:
         """
         步骤二：裁切和拼接 B-roll 视频轨道。
         """
@@ -196,9 +215,9 @@ class SynthesisService:
 
         # --- [END OF TEMPORARY FIX] ---
 
-        chapters_dict = blueprint_data.get('chapters', {})
-        scenes_dict = blueprint_data.get('scenes', {})
-        scene_to_chapter_map = {str(scene['id']): str(scene['chapter_id']) for scene in scenes_dict.values()}
+        chapters_dict = blueprint_data.get("chapters", {})
+        scenes_dict = blueprint_data.get("scenes", {})
+        scene_to_chapter_map = {str(scene["id"]): str(scene["chapter_id"]) for scene in scenes_dict.values()}
 
         # [修改] chapters 字典中的 source_file 现在是文件名，我们需要找到其绝对路径
         chapter_map = {}
@@ -216,7 +235,7 @@ class SynthesisService:
         # 使用 for 循环代替 tqdm (在 Celery 任务中避免使用终端进度条)
         for i, entry in enumerate(editing_script):
             for j, clip in enumerate(entry.get("b_roll_clips", [])):
-                scene_id = str(clip['scene_id'])
+                scene_id = str(clip["scene_id"])
                 chapter_id = scene_to_chapter_map.get(scene_id)
                 # 从我们修正后的 chapter_map 中获取路径
                 source_video = chapter_map.get(chapter_id)
@@ -225,23 +244,35 @@ class SynthesisService:
                 if not source_video or not source_video.is_file():
                     # 记录 ERROR 级别的警告，确保用户看到问题
                     logger.error(
-                        f"无法找到场景 {scene_id} 对应的有效源视频文件。请检查 Media.sequence_number 是否与 Blueprint Chapter ID 匹配，或文件是否存在。路径: {source_video}")
+                        f"无法找到场景 {scene_id} 对应的有效源视频文件。请检查 Media.sequence_number 是否与 Blueprint Chapter ID 匹配，或文件是否存在。路径: {source_video}"  # noqa: E501
+                    )
                     continue
 
-                temp_clip_path = temp_dir / f"clip_{i:03d}_{j:03d}.mp4"
+                temp_clip_path = temp_dir / f"clip_{i:03d}_{j:03d}.mp4"  # noqa: E231
 
                 # 确保 start_time 和 duration 是字符串/可用于 -ss/-t 参数
-                start_time = clip.get('start_time')
-                duration = clip.get('duration')
+                start_time = clip.get("start_time")
+                duration = clip.get("duration")
 
                 if not start_time or not duration:
                     logger.warning(f"剪辑片段 {i}-{j} 缺少 start_time 或 duration，跳过。")
                     continue
 
                 cmd = [
-                    'ffmpeg', '-y', '-ss', start_time, '-i', str(source_video),
-                    '-t', str(duration), '-an', '-vcodec', 'libx264',
-                    '-preset', 'ultrafast', str(temp_clip_path)
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    start_time,
+                    "-i",
+                    str(source_video),
+                    "-t",
+                    str(duration),
+                    "-an",
+                    "-vcodec",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    str(temp_clip_path),
                 ]
                 self._run_ffmpeg_command(cmd, f"Slicing clip {i}-{j}")
                 clip_files.append(temp_clip_path)
@@ -252,13 +283,24 @@ class SynthesisService:
             return None
 
         concat_list_path = temp_dir / "video_concat_list.txt"
-        with concat_list_path.open('w', encoding='utf-8') as f:
+        with concat_list_path.open("w", encoding="utf-8") as f:
             for clip_path in clip_files:
                 f.write(f"file '{clip_path.resolve()}'\n")
 
         # 拼接视频
-        cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat_list_path),
-               '-c', 'copy', str(output_path)]
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list_path),
+            "-c",
+            "copy",
+            str(output_path),
+        ]
         self._run_ffmpeg_command(cmd, "Video Concatenation")
 
         logger.info(f"✅ B-roll视频轨道拼接完毕: {output_path}")
@@ -273,16 +315,24 @@ class SynthesisService:
 
         # 原始的 FFmpeg 命令
         cmd = [
-            'ffmpeg', '-y',
-            '-i', str(video_path),
-            '-i', str(audio_path),
-            '-c:v', 'libx264',
-            '-preset', 'veryfast',
-            '-crf', '23',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-shortest',
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(audio_path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            str(output_path),
         ]
         self._run_ffmpeg_command(cmd, "Final Combination")
 

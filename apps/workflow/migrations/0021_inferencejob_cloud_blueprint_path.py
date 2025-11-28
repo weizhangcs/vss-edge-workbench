@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workflow', '0020_remove_inferenceproject_cloud_blueprint_path_and_more'),
+        ("workflow", "0020_remove_inferenceproject_cloud_blueprint_path_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='inferencejob',
-            name='cloud_blueprint_path',
-            field=models.CharField(blank=True, max_length=1024, null=True, verbose_name='云端蓝图路径'),
+            model_name="inferencejob",
+            name="cloud_blueprint_path",
+            field=models.CharField(blank=True, max_length=1024, null=True, verbose_name="云端蓝图路径"),
         ),
     ]

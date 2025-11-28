@@ -1,12 +1,10 @@
 # apps/media_assets/dashboards.py
-from django.urls import reverse
 from django.conf import settings
-from unfold.widgets import (
-    Kpi,
-    List,
-    Shortcut,
-)
-from .models import Media, Asset
+from django.urls import reverse
+from unfold.widgets import Kpi, List, Shortcut
+
+from .models import Asset, Media
+
 
 def build_dashboard(request):
     """
@@ -16,17 +14,17 @@ def build_dashboard(request):
 
     # 1. 关键指标 (KPIs)
     # 统计当前处于各个关键工作流状态的条目数量
-    pending_media_count = Media.objects.filter(ingestion_status='pending').count()
-    l1_in_progress_count = Asset.objects.filter(l1_status='in_progress').count()
-    l2_l3_in_progress_count = Asset.objects.filter(l2_l3_status='in_progress').count()
+    pending_media_count = Media.objects.filter(ingestion_status="pending").count()
+    l1_in_progress_count = Asset.objects.filter(l1_status="in_progress").count()
+    l2_l3_in_progress_count = Asset.objects.filter(l2_l3_status="in_progress").count()
 
     # 2. 最近更新的资产列表
     # 显示最近被修改过的5个剧集，方便快速跟进
-    latest_assets = Asset.objects.order_by('-updated_at')[:5]
+    latest_assets = Asset.objects.order_by("-updated_at")[:5]
 
     # 3. 快捷方式
     # 提供指向核心操作和外部工具的快速链接
-    add_media_url = reverse('admin:media_assets_media_add')
+    add_media_url = reverse("admin:media_assets_media_add")
 
     # 最终返回一个由列表构成的、描述仪表盘布局的结构
     return [
@@ -41,7 +39,7 @@ def build_dashboard(request):
             List(
                 title="最近更新的剧集",
                 queryset=latest_assets,
-                list_display=["__str__", "l1_status", "l2_l3_status", "updated_at"]
+                list_display=["__str__", "l1_status", "l2_l3_status", "updated_at"],
             ),
             # 第二行右侧：一组快捷方式组件
             [
@@ -50,8 +48,8 @@ def build_dashboard(request):
                     title="Label Studio",
                     url=settings.LABEL_STUDIO_PUBLIC_URL,
                     icon="launch",
-                    target="_blank" # 在新标签页打开
+                    target="_blank",  # 在新标签页打开
                 ),
-            ]
-        ]
+            ],
+        ],
     ]

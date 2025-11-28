@@ -1,20 +1,19 @@
 # 文件路径: apps/workflow/transcoding/tasks.py
 
+import logging
+import os
 import subprocess
 from pathlib import Path
+
 from celery import shared_task
 from django.conf import settings
 from django.core.files.base import ContentFile
-import logging
-import os
-
 from django.db import transaction
 
-# [修复/新增] 确保导入 TranscodingProject
-from ..models import TranscodingJob, DeliveryJob, TranscodingProject
 from ..delivery.tasks import run_delivery_job
 
-from apps.media_assets.services.storage import StorageService
+# [修复/新增] 确保导入 TranscodingProject
+from ..models import DeliveryJob, TranscodingJob, TranscodingProject
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ def _check_and_update_project_status(project: TranscodingProject):
     # 只有当新状态不同于当前状态时才进行更新
     if project.status != new_status:
         project.status = new_status
-        project.save(update_fields=['status'])
+        project.save(update_fields=["status"])
         logger.info(f"Transcoding Project {project.id} status successfully updated to {new_status}")
 
 
@@ -58,7 +57,7 @@ def run_transcoding_job(job_id):
     temp_output_path = None
     try:
         # 优化查询以减少数据库访问
-        job = TranscodingJob.objects.select_related('project', 'profile', 'media__asset').get(id=job_id)
+        job = TranscodingJob.objects.select_related("project", "profile", "media__asset").get(id=job_id)
     except TranscodingJob.DoesNotExist:
         logger.error(f"找不到 ID 为 {job_id} 的转码任务。")
         return
@@ -75,7 +74,7 @@ def run_transcoding_job(job_id):
     media = job.media
     source_video_path = Path(media.source_video.path)
 
-    temp_output_dir = Path(settings.MEDIA_ROOT) / 'temp_transcoding'
+    temp_output_dir = Path(settings.MEDIA_ROOT) / "temp_transcoding"
     temp_output_dir.mkdir(parents=True, exist_ok=True)
     temp_output_filename = f"{job.id}.{job.profile.container}"
     temp_output_path = temp_output_dir / temp_output_filename
@@ -83,23 +82,17 @@ def run_transcoding_job(job_id):
     try:
         # 1. FFmpeg 命令组装
         encoding_params = job.profile.ffmpeg_command.split()
-        command = [
-            'ffmpeg',
-            '-i', str(source_video_path),
-            *encoding_params,
-            str(temp_output_path),
-            '-y'
-        ]
+        command = ["ffmpeg", "-i", str(source_video_path), *encoding_params, str(temp_output_path), "-y"]
 
         logger.info(f"执行转码命令: {' '.join(command)}")
-        subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
+        subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8")
         logger.info(f"FFmpeg 转码成功: {temp_output_path}")
 
         # ----------------- 修改开始 -----------------
         # 使用原子事务块，确保块内所有数据库操作提交后，才会执行 on_commit
         with transaction.atomic():
             # 1. 先保存文件 (save=False 不操作DB，只是把文件对象挂在内存实例上)
-            with open(temp_output_path, 'rb') as f:
+            with open(temp_output_path, "rb") as f:
                 job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
 
             # 2. 更新状态为 QA_PENDING
@@ -107,7 +100,7 @@ def run_transcoding_job(job_id):
 
             # 3. 真正保存到数据库 (状态和文件路径同时落库)
             job.save()
-            logger.info(f"已将本地产出物路径保存至 job.output_file，状态已更为 QA_PENDING")
+            logger.info("已将本地产出物路径保存至 job.output_file，状态已更为 QA_PENDING")
 
             # 4. 创建分发任务记录
             delivery_job = DeliveryJob.objects.create(source_object=job)

@@ -1,22 +1,23 @@
 # 文件路径: apps/workflow/creative/tasks.py
 
-import logging
 import json
+import logging
 import os
 from decimal import Decimal
 from pathlib import Path
+
 from celery import shared_task
-from django.core.files.base import ContentFile
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db.models import Q
 from django_fsm import TransitionNotAllowed
 
-from .projects import CreativeProject, get_creative_output_upload_path
-from .jobs import CreativeJob
-from apps.workflow.inference.services.cloud_api import CloudApiService
-from apps.workflow.inference.tasks import poll_cloud_task_status # 重用轮询器
 from apps.workflow.common.baseJob import BaseJob
-from apps.workflow.inference.projects import InferenceJob
+from apps.workflow.inference.services.cloud_api import CloudApiService
+from apps.workflow.inference.tasks import poll_cloud_task_status  # 重用轮询器
+
+from .jobs import CreativeJob
+from .projects import CreativeProject, get_creative_output_upload_path
 from .services.synthesis_service import SynthesisService
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 # 1. 生成解说词 (Narration V3) - 最终事实版 (v1.2.0-alpha.3+)
 # ==============================================================================
+
 
 @shared_task(name="apps.workflow.creative.tasks.start_narration_task")
 def start_narration_task(project_id: str, config: dict = None, **kwargs):
@@ -46,7 +48,7 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
             "target_duration_minutes": 3,
             "overflow_tolerance": 0.0,
             "speaking_rate": 4.2,
-            "rag_top_k": 50
+            "rag_top_k": 50,
         }
 
     # [类型清洗] Decimal -> float (防止 JSON 序列化报错)
@@ -79,9 +81,9 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
                 raise Exception(f"蓝图上传失败: {path}")
         else:
             # 备用：尝试查找旧的云端路径
-            inference_job = inference_project.jobs.filter(
-                cloud_blueprint_path__isnull=False
-            ).order_by('-modified').first()
+            inference_job = (
+                inference_project.jobs.filter(cloud_blueprint_path__isnull=False).order_by("-modified").first()
+            )
             if inference_job and inference_job.cloud_blueprint_path:
                 blueprint_path = inference_job.cloud_blueprint_path
                 logger.warning("[NarrationTask] 使用缓存的云端蓝图路径。")
@@ -93,7 +95,7 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
             project=project,
             job_type=CreativeJob.TYPE.GENERATE_NARRATION,
             status=BaseJob.STATUS.PENDING,
-            input_params=config
+            input_params=config,
         )
         job.start()
         job.save()
@@ -102,71 +104,71 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
 
     except Exception as e:
         logger.error(f"[NarrationTask] 初始化失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
         return
 
     # --- 构造 V3 API Payload ---
     try:
         # 1. 提取基础参数
-        narrative_focus = config.get('narrative_focus', 'general')
-        style = config.get('style', 'objective')
-        perspective = config.get('perspective', 'third_person')
+        narrative_focus = config.get("narrative_focus", "general")
+        style = config.get("style", "objective")
+        perspective = config.get("perspective", "third_person")
 
         # 2. 构造 Custom Prompts (字典)
         custom_prompts = {}
-        if narrative_focus == 'custom':
-            txt = config.get('custom_narrative_prompt', '').strip()
-            if txt: custom_prompts['narrative_focus'] = txt
+        if narrative_focus == "custom":
+            txt = config.get("custom_narrative_prompt", "").strip()
+            if txt:
+                custom_prompts["narrative_focus"] = txt
 
-        if style == 'custom':
-            txt = config.get('custom_style_prompt', '').strip()
-            if txt: custom_prompts['style'] = txt
+        if style == "custom":
+            txt = config.get("custom_style_prompt", "").strip()
+            if txt:
+                custom_prompts["style"] = txt
 
         # 3. 构造 Character Focus
-        char_str = config.get('character_focus', '')
-        char_list = [c.strip() for c in char_str.split(',') if c.strip()]
-        character_focus_struct = {
-            "mode": "specific" if char_list else "all",
-            "characters": char_list
-        }
+        char_str = config.get("character_focus", "")
+        char_list = [c.strip() for c in char_str.split(",") if c.strip()]
+        character_focus_struct = {"mode": "specific" if char_list else "all", "characters": char_list}
 
         # 4. 构造 Control Params
         control_params = {
             "narrative_focus": narrative_focus,
             "style": style,
             "perspective": perspective,
-            "target_duration_minutes": int(config.get('target_duration_minutes', 3)),
+            "target_duration_minutes": int(config.get("target_duration_minutes", 3)),
             "scope": {
                 "type": "episode_range",
-                "value": [
-                    int(config.get('scope_start', 1)),
-                    int(config.get('scope_end', 5))
-                ]
+                "value": [int(config.get("scope_start", 1)), int(config.get("scope_end", 5))],
             },
-            "character_focus": character_focus_struct
+            "character_focus": character_focus_struct,
         }
 
         # 第一人称必须传 perspective_character
-        if perspective == 'first_person':
-            p_char = config.get('perspective_character', '').strip()
+        if perspective == "first_person":
+            p_char = config.get("perspective_character", "").strip()
             if p_char:
-                control_params['perspective_character'] = p_char
+                control_params["perspective_character"] = p_char
             else:
                 logger.warning("[NarrationTask] 第一人称视角未指定角色名，可能导致生成错误。")
 
         if custom_prompts:
-            control_params['custom_prompts'] = custom_prompts
+            control_params["custom_prompts"] = custom_prompts
 
         # 5. 构造 Service Params
         service_params = {
             "lang": "zh",
             "model": "gemini-2.5-pro",
             "debug": True,
-            "rag_top_k": int(config.get('rag_top_k', 50)),
-            "speaking_rate": float(config.get('speaking_rate', 4.2)),
-            "overflow_tolerance": float(config.get('overflow_tolerance', 0.0)),
-            "control_params": control_params
+            "rag_top_k": int(config.get("rag_top_k", 50)),
+            "speaking_rate": float(config.get("speaking_rate", 4.2)),
+            "overflow_tolerance": float(config.get("overflow_tolerance", 0.0)),
+            "control_params": control_params,
         }
 
         # 6. 最终 Payload (键名 blueprint_path)
@@ -174,20 +176,20 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
             "asset_name": asset_name,
             "asset_id": asset_id,
             "blueprint_path": blueprint_path,  # [Confirm: Doc Section 2]
-            "service_params": service_params
+            "service_params": service_params,
         }
 
-        logger.info(f"[NarrationTask] Payload Preview:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+        logger.info(f"[NarrationTask] Payload Preview: \n{json.dumps(payload, ensure_ascii=False, indent=2)}")
 
         # --- 发送请求 ---
         service = CloudApiService()
         success, task_data = service.create_task("GENERATE_NARRATION", payload)
 
         if not success:
-            msg = task_data.get('message', 'API Error')
+            msg = task_data.get("message", "API Error")
             raise Exception(f"Create Task Failed: {msg}")
 
-        job.cloud_task_id = task_data['id']
+        job.cloud_task_id = task_data["id"]
         job.save()
 
         logger.info(f"[NarrationTask] Task Created: {job.cloud_task_id}")
@@ -195,9 +197,9 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         # 触发轮询
         poll_cloud_task_status.delay(
             job_id=job.id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.creative.tasks.finalize_narration_task',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.creative.tasks.finalize_narration_task",
+            on_complete_kwargs={},
         )
 
     except Exception as e:
@@ -206,6 +208,7 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         job.save()
         project.status = CreativeProject.STATUS.FAILED
         project.save()
+
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_narration_task")
 def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
@@ -240,7 +243,7 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
                 raise Exception(f"下载解说词失败: {download_url}")
         elif result_data and "narration_script" in result_data:
             # 如果 result 直接包含了数据，将其转为 bytes
-            content_bytes = json.dumps(result_data, ensure_ascii=False, indent=2).encode('utf-8')
+            content_bytes = json.dumps(result_data, ensure_ascii=False, indent=2).encode("utf-8")
         else:
             raise Exception("云端任务完成，但未提供 download_url 或有效的 result 数据")
 
@@ -256,19 +259,24 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
 
         # 自动化链式触发 (如果配置了 auto_config)
         if project.auto_config:
-            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 2 (配音)...")
-            audio_config = project.auto_config.get('audio', {})
+            logger.info("[AutoPilot] 检测到自动化配置，正在自动启动步骤 2 (配音)...")
+            audio_config = project.auto_config.get("audio", {})
             start_audio_task.delay(project_id=str(project.id), config=audio_config)
 
     except Exception as e:
         logger.error(f"[CreativeFinal 1] Job {job_id} 最终化处理失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
 
 
 # ==============================================================================
 # 2. 本地化 (Localize Narration - V1.2.1 新增)
 # ==============================================================================
+
 
 @shared_task(name="apps.workflow.creative.tasks.start_localize_task")
 def start_localize_task(project_id: str, config: dict = None, **kwargs):
@@ -278,10 +286,12 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
     job = None
     project = None
 
-    if not config: config = {}
+    if not config:
+        config = {}
     if config:
         for k, v in config.items():
-            if isinstance(v, Decimal): config[k] = float(v)
+            if isinstance(v, Decimal):
+                config[k] = float(v)
 
     try:
         project = CreativeProject.objects.get(id=project_id)
@@ -299,12 +309,14 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
         # 简化的蓝图获取逻辑
         if local_bp and local_bp.path and Path(local_bp.path).exists():
             success, path = service.upload_file(Path(local_bp.path))
-            if success: blueprint_path = path
+            if success:
+                blueprint_path = path
 
         if not blueprint_path:
             # 尝试从之前的 Job 找
             prev_job = inference_project.jobs.filter(cloud_blueprint_path__isnull=False).last()
-            if prev_job: blueprint_path = prev_job.cloud_blueprint_path
+            if prev_job:
+                blueprint_path = prev_job.cloud_blueprint_path
 
         if not blueprint_path:
             raise ValueError("无法获取蓝图路径")
@@ -319,7 +331,7 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
             project=project,
             job_type=CreativeJob.TYPE.LOCALIZE_NARRATION,
             status=BaseJob.STATUS.PENDING,
-            input_params=config
+            input_params=config,
         )
         job.start()
         job.save()
@@ -330,34 +342,36 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
             "blueprint_path": blueprint_path,
             "service_params": {
                 "lang": "zh",  # 母本语言
-                "target_lang": config.get('target_lang', 'en'),
+                "target_lang": config.get("target_lang", "en"),
                 "model": "gemini-2.5-pro",
-                "speaking_rate": float(config.get('speaking_rate', 2.5)),
-                "overflow_tolerance": float(config.get('overflow_tolerance', -0.15))
-            }
+                "speaking_rate": float(config.get("speaking_rate", 2.5)),
+                "overflow_tolerance": float(config.get("overflow_tolerance", -0.15)),
+            },
         }
 
         # [新增] 打印 Payload 预览，方便调试
-        logger.info(f"[LocalizeTask] Payload Preview:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+        logger.info(f"[LocalizeTask] Payload Preview: \n{json.dumps(payload, ensure_ascii=False, indent=2)}")
 
         # 发送请求
         success, task_data = service.create_task("LOCALIZE_NARRATION", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create LOCALIZE task'))
+            raise Exception(task_data.get("message", "Failed to create LOCALIZE task"))
 
-        job.cloud_task_id = task_data['id']
+        job.cloud_task_id = task_data["id"]
         job.save()
 
         poll_cloud_task_status.delay(
             job_id=job.id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.creative.tasks.finalize_localize_task',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.creative.tasks.finalize_localize_task",
+            on_complete_kwargs={},
         )
 
     except Exception as e:
         logger.error(f"[LocalizeTask] 启动失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
+        if job:
+            job.fail()
+            job.save()
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_localize_task")
@@ -388,7 +402,9 @@ def finalize_localize_task(job_id: str, cloud_task_data: dict, **kwargs):
 
     except Exception as e:
         logger.error(f"[LocalizeFinal] 失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
+        if job:
+            job.fail()
+            job.save()
 
 
 # ==============================================================================
@@ -398,6 +414,7 @@ def finalize_localize_task(job_id: str, cloud_task_data: dict, **kwargs):
 # ==============================================================================
 # 3. 生成配音 (Dubbing V2 - 适配版)
 # ==============================================================================
+
 
 @shared_task(name="apps.workflow.creative.tasks.start_audio_task")
 def start_audio_task(project_id: str, config: dict = None, **kwargs):
@@ -409,21 +426,23 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
     job = None
     project = None
 
-    if not config: config = {}
+    if not config:
+        config = {}
 
     # 清洗 Decimal
     for k, v in config.items():
-        if isinstance(v, Decimal): config[k] = float(v)
+        if isinstance(v, Decimal):
+            config[k] = float(v)
 
     try:
         project = CreativeProject.objects.get(id=project_id)
 
         # 1. 确定输入脚本 (支持配音母本或配音发行本)
         # --- [逻辑更新] 根据 config 选择输入文件 ---
-        source_type = config.get('source_script_type', 'master')
+        source_type = config.get("source_script_type", "master")
         source_file = None
 
-        if source_type == 'localized':
+        if source_type == "localized":
             source_file = project.localized_script_file
             if not source_file:
                 raise ValueError("选择了‘本地化译本’作为配音源，但尚未找到本地化产出文件。请先执行步骤 1.5。")
@@ -445,7 +464,7 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
             project=project,
             job_type=CreativeJob.TYPE.GENERATE_AUDIO,
             status=BaseJob.STATUS.PENDING,
-            input_params=config
+            input_params=config,
         )
         job.start()
         job.save()
@@ -453,48 +472,47 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
         project.save()
 
         # 4. 构造 Payload (核心逻辑)
-        template_name = config.get('template_name', 'chinese_gemini_emotional')
-        service_params = {
-            "template_name": template_name
-        }
+        template_name = config.get("template_name", "chinese_gemini_emotional")
+        service_params = {"template_name": template_name}
 
         # 策略分支
-        if 'gemini' in template_name:
+        if "gemini" in template_name:
             # Google 策略参数
-            service_params['voice_name'] = config.get('voice_name', 'Puck')
-            service_params['language_code'] = config.get('language_code', 'cmn-CN')
-            service_params['speaking_rate'] = float(config.get('speed', 1.0))  # 映射 speed -> speaking_rate
-            service_params['model_name'] = "gemini-2.5-pro-tts"  # 固定或从 config 读
+            service_params["voice_name"] = config.get("voice_name", "Puck")
+            service_params["language_code"] = config.get("language_code", "cmn-CN")
+            service_params["speaking_rate"] = float(config.get("speed", 1.0))  # 映射 speed -> speaking_rate
+            service_params["model_name"] = "gemini-2.5-pro-tts"  # 固定或从 config 读
         else:
             # Aliyun 策略参数
-            service_params['speed'] = float(config.get('speed', 1.0))
+            service_params["speed"] = float(config.get("speed", 1.0))
 
         # Payload
-        payload = {
-            "input_narration_path": script_path,  # [V2 新键名]
-            "service_params": service_params
-        }
+        payload = {"input_narration_path": script_path, "service_params": service_params}  # [V2 新键名]
 
         logger.info(f"[AudioTask] Payload: {json.dumps(payload, ensure_ascii=False)}")
 
         success, task_data = service.create_task("GENERATE_DUBBING", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create DUBBING task'))
+            raise Exception(task_data.get("message", "Failed to create DUBBING task"))
 
-        job.cloud_task_id = task_data['id']
+        job.cloud_task_id = task_data["id"]
         job.save()
 
         poll_cloud_task_status.delay(
             job_id=job.id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.creative.tasks.finalize_audio_task',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.creative.tasks.finalize_audio_task",
+            on_complete_kwargs={},
         )
 
     except Exception as e:
         logger.error(f"[AudioTask] 启动失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_audio_task")
@@ -529,14 +547,13 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
         if not success:
             raise Exception(f"下载 dubbing_script.json 失败: {download_url}")
 
-        dubbing_script_data = json.loads(content.decode('utf-8'))
+        dubbing_script_data = json.loads(content.decode("utf-8"))
         dubbing_list = dubbing_script_data.get("dubbing_script", [])
 
         # 2. 准备本地存储
         # 定义一个此任务专用的音频文件夹
         local_audio_dir_rel = os.path.join(
-            get_creative_output_upload_path(project, ''),  # creative/{id}/outputs/
-            f"audio_{job.id}"
+            get_creative_output_upload_path(project, ""), f"audio_{job.id}"  # creative/{id}/outputs/
         )
         local_audio_dir_abs = Path(settings.MEDIA_ROOT) / local_audio_dir_rel
         local_audio_dir_abs.mkdir(parents=True, exist_ok=True)
@@ -559,7 +576,7 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
                 local_wav_path_rel = os.path.join(local_audio_dir_rel, wav_filename)
                 local_wav_path_abs = Path(settings.MEDIA_ROOT) / local_wav_path_rel
 
-                with open(local_wav_path_abs, 'wb') as f:
+                with open(local_wav_path_abs, "wb") as f:
                     f.write(content_wav)
 
                 # 3c. (关键) 更新 JSON 对象，将云端路径替换为本地相对路径
@@ -575,9 +592,7 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
         modified_content_str = json.dumps(dubbing_script_data, indent=2, ensure_ascii=False)
 
         project.dubbing_script_file.save(
-            f"dubbing_script_{job.id}.json",
-            ContentFile(modified_content_str.encode('utf-8')),
-            save=False
+            f"dubbing_script_{job.id}.json", ContentFile(modified_content_str.encode("utf-8")), save=False
         )
 
         job.complete()
@@ -589,18 +604,23 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
 
         # [新增] 自动化链式触发
         if project.auto_config:
-            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 3 (剪辑脚本)...")
+            logger.info("[AutoPilot] 检测到自动化配置，正在自动启动步骤 3 (剪辑脚本)...")
             # Edit 步骤目前不需要复杂配置，或者从 auto_config 取
             # edit_config = project.auto_config.get('edit', {})
             start_edit_script_task.delay(project_id=str(project.id))
 
     except Exception as e:
         logger.error(f"[CreativeFinal 2] Job {job_id} 最终化处理失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
 
 
 # --- 您的步骤 3: 生成剪辑脚本 (已实现) ---
+
 
 @shared_task(name="apps.workflow.creative.tasks.start_edit_script_task")
 def start_edit_script_task(project_id: str, **kwargs):
@@ -614,7 +634,7 @@ def start_edit_script_task(project_id: str, **kwargs):
         project = CreativeProject.objects.get(id=project_id)
 
         if project.status != CreativeProject.STATUS.AUDIO_COMPLETED:
-            logger.warning(f"[CreativeTask 3] 项目状态不是 AUDIO_COMPLETED，任务中止。")
+            logger.warning("[CreativeTask 3] 项目状态不是 AUDIO_COMPLETED，任务中止。")
             return
 
         if not project.dubbing_script_file:
@@ -628,7 +648,7 @@ def start_edit_script_task(project_id: str, **kwargs):
             project=project,
             job_type=CreativeJob.TYPE.GENERATE_EDIT_SCRIPT,
             status=BaseJob.STATUS.PENDING,
-            input_params={"lang": "zh"}  # [cite: 297]
+            input_params={"lang": "zh"},  # [cite: 297]
         )
         job.start()
 
@@ -637,8 +657,12 @@ def start_edit_script_task(project_id: str, **kwargs):
 
     except Exception as e:
         logger.error(f"[CreativeTask 3] 无法启动剪辑脚本任务 (Project: {project_id}): {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
         return
 
     try:
@@ -651,13 +675,13 @@ def start_edit_script_task(project_id: str, **kwargs):
 
         # 2. (高效) 重用已上传的 blueprint 路径 [cite: 293]
         # 我们从 inference 工作流中找到它
-        inference_job = project.inference_project.jobs.filter(
-            cloud_blueprint_path__isnull=False
-        ).order_by('-modified').first()
+        inference_job = (
+            project.inference_project.jobs.filter(cloud_blueprint_path__isnull=False).order_by("-modified").first()
+        )
 
         if not inference_job or not inference_job.cloud_blueprint_path:
             # (备用方案：如果找不到，就重新上传)
-            logger.warning(f"[CreativeTask 3] 找不到已上传的蓝图路径，将重新上传。")
+            logger.warning("[CreativeTask 3] 找不到已上传的蓝图路径，将重新上传。")
             bp_file_path = project.inference_project.annotation_project.final_blueprint_file.path
             success_bp, blueprint_path = service.upload_file(Path(bp_file_path))
             if not success_bp:
@@ -670,29 +694,29 @@ def start_edit_script_task(project_id: str, **kwargs):
         payload = {
             "dubbing_script_path": dubbing_path,
             "blueprint_path": blueprint_path,
-            "service_params": job.input_params
+            "service_params": job.input_params,
         }
 
         # 4. 创建云端任务
         success, task_data = service.create_task("GENERATE_EDITING_SCRIPT", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create GENERATE_EDITING_SCRIPT task'))
+            raise Exception(task_data.get("message", "Failed to create GENERATE_EDITING_SCRIPT task"))
 
-        job.cloud_task_id = task_data['id']
+        job.cloud_task_id = task_data["id"]
         job.save()
 
         # 5. 触发轮询
         poll_cloud_task_status.delay(
             job_id=job.id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.creative.tasks.finalize_edit_script_task',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.creative.tasks.finalize_edit_script_task",
+            on_complete_kwargs={},
         )
     except Exception as e:
         logger.error(f"[CreativeTask 3] API 调用失败 (Job: {job.id}): {e}", exc_info=True)
-        job.fail();
+        job.fail()
         job.save()
-        project.status = CreativeProject.STATUS.FAILED;
+        project.status = CreativeProject.STATUS.FAILED
         project.save()
 
 
@@ -741,13 +765,17 @@ def finalize_edit_script_task(job_id: str, cloud_task_data: dict, **kwargs):
 
         # [新增] 自动化链式触发
         if project.auto_config:
-            logger.info(f"[AutoPilot] 检测到自动化配置，正在自动启动步骤 4 (最终合成)...")
+            logger.info("[AutoPilot] 检测到自动化配置，正在自动启动步骤 4 (最终合成)...")
             start_synthesis_task.delay(project_id=str(project.id))
 
     except Exception as e:
         logger.error(f"[CreativeFinal 3] Job {job_id} 最终化处理失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
 
 
 @shared_task(name="apps.workflow.creative.tasks.start_synthesis_task")
@@ -763,19 +791,17 @@ def start_synthesis_task(project_id: str, **kwargs):
         project = CreativeProject.objects.get(id=project_id)
 
         if project.status != CreativeProject.STATUS.EDIT_COMPLETED:
-            logger.warning(f"[CreativeTask 4] 项目状态不是 EDIT_COMPLETED，任务中止。")
+            logger.warning("[CreativeTask 4] 项目状态不是 EDIT_COMPLETED，任务中止。")
             return
 
         # 1. 检查所有必需的本地输入文件 (略)
 
         # 2. 创建 Job
         job = CreativeJob.objects.create(
-            project=project,
-            job_type=CreativeJob.TYPE.SYNTHESIS,
-            status=BaseJob.STATUS.PENDING
+            project=project, job_type=CreativeJob.TYPE.SYNTHESIS, status=BaseJob.STATUS.PENDING
         )
         job.start()
-        job.save() # <--- [关键修复] 必须保存，将状态从 PENDING 切换为 PROCESSING
+        job.save()  # <--- [关键修复] 必须保存，将状态从 PENDING 切换为 PROCESSING
 
         # 3. 设置项目状态
         project.status = CreativeProject.STATUS.SYNTHESIS_RUNNING
@@ -786,14 +812,19 @@ def start_synthesis_task(project_id: str, **kwargs):
         blueprint_path = Path(project.inference_project.annotation_project.final_blueprint_file.path)
 
         # 5. 确定本地音频和视频的基目录 (略)
-        audio_job = CreativeJob.objects.filter(
-            Q(project=project) & Q(job_type=CreativeJob.TYPE.GENERATE_AUDIO) & Q(status=BaseJob.STATUS.COMPLETED)
-        ).order_by('-modified').first()
+        audio_job = (
+            CreativeJob.objects.filter(
+                Q(project=project) & Q(job_type=CreativeJob.TYPE.GENERATE_AUDIO) & Q(status=BaseJob.STATUS.COMPLETED)
+            )
+            .order_by("-modified")
+            .first()
+        )
         if not audio_job:
             raise RuntimeError("找不到已完成的 GENERATE_AUDIO 任务来确定音频基目录。")
-        local_audio_base_dir = Path(settings.MEDIA_ROOT) / get_creative_output_upload_path(project,
-                                                                                           f"audio_{audio_job.id}")
-        source_videos_dir = Path(settings.MEDIA_ROOT) / 'source_files' / str(project.asset.id) / 'media'
+        local_audio_base_dir = Path(settings.MEDIA_ROOT) / get_creative_output_upload_path(
+            project, f"audio_{audio_job.id}"
+        )
+        source_videos_dir = Path(settings.MEDIA_ROOT) / "source_files" / str(project.asset.id) / "media"
 
         # 6. 实例化并执行 SynthesisService
         service = SynthesisService(project_id=str(project.id))
@@ -803,7 +834,7 @@ def start_synthesis_task(project_id: str, **kwargs):
             blueprint_path=blueprint_path,
             local_audio_base_dir=local_audio_base_dir,
             source_videos_dir=source_videos_dir,
-            asset_id=str(project.asset.id)
+            asset_id=str(project.asset.id),
         )
 
         # 任务成功，立即调用回调函数 (不使用 Celery 链式调用，因为这是同步操作)
@@ -811,8 +842,12 @@ def start_synthesis_task(project_id: str, **kwargs):
 
     except Exception as e:
         logger.error(f"[CreativeTask 4] 无法启动/执行合成任务 (Project: {project_id}): {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()
         return
 
 
@@ -839,18 +874,18 @@ def finalize_synthesis_task(job_id: str, final_output_path: str, **kwargs):
         if not output_path.is_file():
             raise FileNotFoundError(f"最终合成文件未找到: {final_output_path}")
 
-        with output_path.open('rb') as f:
+        with output_path.open("rb") as f:
             project.final_video_file.save(output_path.name, ContentFile(f.read()), save=False)
 
         # 2. 标记任务和项目为完成
         try:
-            job.complete() # <-- 如果状态是 PENDING，会抛出 TransitionNotAllowed
+            job.complete()  # <-- 如果状态是 PENDING，会抛出 TransitionNotAllowed
             job.save()
-        except TransitionNotAllowed as e:
+        except TransitionNotAllowed:
             # [关键修复] 捕获 FSM 转换错误，强制更新状态
             logger.warning(f"[CreativeFinal 4] FSM 转换失败 ({job.status})。强制标记为 COMPLETED。")
             job.status = BaseJob.STATUS.COMPLETED
-            job.save(update_fields=['status'])
+            job.save(update_fields=["status"])
 
         project.status = CreativeProject.STATUS.COMPLETED
         project.save()
@@ -860,5 +895,9 @@ def finalize_synthesis_task(job_id: str, final_output_path: str, **kwargs):
 
     except Exception as e:
         logger.error(f"[CreativeFinal 4] Job {job_id} 最终化处理失败: {e}", exc_info=True)
-        if job: job.fail(); job.save()
-        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
+        if job:
+            job.fail()
+            job.save()
+        if project:
+            project.status = CreativeProject.STATUS.FAILED
+            project.save()

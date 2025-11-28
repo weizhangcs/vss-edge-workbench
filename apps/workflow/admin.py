@@ -10,17 +10,21 @@
 
 # 文件路径: apps/workflow/admin.py
 
-# --- 从新的 transcoding 子包导入 ---
-from .transcoding.admin import *
+from .annotation.admin import AnnotationJobAdmin, AnnotationProjectAdmin
+from .creative.admin import CreativeBatchAdmin, CreativeProjectAdmin
+from .delivery.admin import DeliveryJobAdmin
+from .inference.admin import InferenceProjectAdmin
+from .transcoding.admin import TranscodingJobAdmin, TranscodingProjectAdmin
 
-# --- 从新的 annotation 子包导入 ---
-from .annotation.admin import *
-
-# --- 从新的 delivery 子包导入 ---
-from .delivery.admin import *
-
-# --- 从新的 inference 子包导入 ---
-from .inference.admin import *
-
-# --- 从新的 creative 子包导入 ---
-from .creative.admin import *
+# 显式声明导出列表，既满足了 Flake8 的 F401 检查，
+# 也明确了该模块作为 "Admin Registry" 的职责。
+__all__ = [
+    "AnnotationJobAdmin",
+    "AnnotationProjectAdmin",
+    "CreativeBatchAdmin",
+    "CreativeProjectAdmin",
+    "DeliveryJobAdmin",
+    "InferenceProjectAdmin",
+    "TranscodingJobAdmin",
+    "TranscodingProjectAdmin",
+]

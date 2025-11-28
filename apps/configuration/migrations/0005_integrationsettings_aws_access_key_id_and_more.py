@@ -4,55 +4,59 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('configuration', '0004_encodingprofile_is_default'),
+        ("configuration", "0004_encodingprofile_is_default"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='integrationsettings',
-            name='aws_access_key_id',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='AWS Access Key ID'),
+            model_name="integrationsettings",
+            name="aws_access_key_id",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="AWS Access Key ID"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='aws_s3_custom_domain',
-            field=models.URLField(blank=True, max_length=1024, null=True, verbose_name='AWS S3 Custom Domain'),
+            model_name="integrationsettings",
+            name="aws_s3_custom_domain",
+            field=models.URLField(blank=True, max_length=1024, null=True, verbose_name="AWS S3 Custom Domain"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='aws_s3_region_name',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='AWS S3 Region Name'),
+            model_name="integrationsettings",
+            name="aws_s3_region_name",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="AWS S3 Region Name"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='aws_secret_access_key',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='AWS Secret Access Key'),
+            model_name="integrationsettings",
+            name="aws_secret_access_key",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="AWS Secret Access Key"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='aws_storage_bucket_name',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='AWS Bucket Name'),
+            model_name="integrationsettings",
+            name="aws_storage_bucket_name",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="AWS Bucket Name"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='cloud_api_base_url',
-            field=models.URLField(blank=True, max_length=1024, null=True, verbose_name='云端 API Base URL'),
+            model_name="integrationsettings",
+            name="cloud_api_base_url",
+            field=models.URLField(blank=True, max_length=1024, null=True, verbose_name="云端 API Base URL"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='cloud_api_key',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='云端 API 密钥'),
+            model_name="integrationsettings",
+            name="cloud_api_key",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="云端 API 密钥"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='cloud_instance_id',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='云端实例 ID'),
+            model_name="integrationsettings",
+            name="cloud_instance_id",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="云端实例 ID"),
         ),
         migrations.AddField(
-            model_name='integrationsettings',
-            name='storage_backend',
-            field=models.CharField(choices=[('local', '本地文件系统 (Local)'), ('s3', 'AWS S3 (Cloud Storage)')], default='local', max_length=10, verbose_name='存储后端'),
+            model_name="integrationsettings",
+            name="storage_backend",
+            field=models.CharField(
+                choices=[("local", "本地文件系统 (Local)"), ("s3", "AWS S3 (Cloud Storage)")],
+                default="local",
+                max_length=10,
+                verbose_name="存储后端",
+            ),
         ),
     ]

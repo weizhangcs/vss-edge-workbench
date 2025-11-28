@@ -1,11 +1,13 @@
 # 文件路径: apps/workflow/delivery/tasks.py
 
-from celery import shared_task
 import logging
+
+from celery import shared_task
+
+from apps.media_assets.services.storage import StorageService
 
 from ..common.baseJob import BaseJob
 from ..models import DeliveryJob, TranscodingJob
-from apps.media_assets.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ def run_delivery_job(job_id):
 
     try:
         # 确保源文件存在
-        if not hasattr(source_job, 'output_file') or not source_job.output_file.path:
+        if not hasattr(source_job, "output_file") or not source_job.output_file.path:
             raise ValueError(f"源对象 {source_job} 没有可用的 output_file。")
 
         local_file_path = source_job.output_file.path
@@ -52,10 +54,7 @@ def run_delivery_job(job_id):
 
         # --- 核心逻辑：根据源对象的类型调用不同的上传方法 ---
         if isinstance(source_job, TranscodingJob):
-            final_url = storage_service.save_transcoded_video(
-                local_temp_path=local_file_path,
-                job=source_job
-            )
+            final_url = storage_service.save_transcoded_video(local_temp_path=local_file_path, job=source_job)
         else:
             raise TypeError(f"不支持的源对象类型: {type(source_job)}")
 
@@ -67,7 +66,7 @@ def run_delivery_job(job_id):
         # [FIX 4b] 将 URL 更新回源 TranscodingJob 并将其标记为 COMPLETED
         source_job.output_url = final_url
         source_job.complete()  # (现在 'QA_PENDING' -> 'COMPLETED' 是允许的)
-        source_job.save(update_fields=['output_url', 'status'])
+        source_job.save(update_fields=["output_url", "status"])
 
         logger.info(f"分发任务 {job_id} 成功完成！URL: {final_url}")
 
@@ -78,8 +77,8 @@ def run_delivery_job(job_id):
 
         # [FIX 4c] 如果分发失败，将源 TranscodingJob 标记为 ERROR
         try:
-            source_job.fail() # ( 'QA_PENDING' -> 'ERROR' 是允许的)
-            source_job.save(update_fields=['status'])
+            source_job.fail()  # ( 'QA_PENDING' -> 'ERROR' 是允许的)
+            source_job.save(update_fields=["status"])
         except Exception as e_inner:
             logger.error(f"无法将源任务 {source_job.id} 标记为失败: {e_inner}")
 

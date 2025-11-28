@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workflow', '0023_remove_creativeproject_dubbing_audio_file_and_more'),
+        ("workflow", "0023_remove_creativeproject_dubbing_audio_file_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='inferenceproject',
-            name='rag_total_scene_count',
-            field=models.IntegerField(blank=True, null=True, verbose_name='RAG 语料场景总数'),
+            model_name="inferenceproject",
+            name="rag_total_scene_count",
+            field=models.IntegerField(blank=True, null=True, verbose_name="RAG 语料场景总数"),
         ),
     ]

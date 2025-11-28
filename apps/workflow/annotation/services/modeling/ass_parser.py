@@ -1,8 +1,8 @@
 # ass_parser.py
 
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
-import json
 
 # 导入我们新建的公共工具
 # from time_utils import TimeConverter
@@ -18,26 +18,31 @@ def parse(ass_file_path: Path) -> Tuple[List[Dict], List[Dict]]:
         return [], []
 
     dialogues, captions = [], []
-    with open(ass_file_path, 'r', encoding='utf-8') as f:
+    with open(ass_file_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     event_section = False
     for line in lines:
         line = line.strip()
-        if line.lower() == '[events]': event_section = True; continue
-        if event_section and line.startswith('['): break
-        if not event_section or not line.lower().startswith('dialogue:'): continue
+        if line.lower() == "[events]":
+            event_section = True
+            continue
+        if event_section and line.startswith("["):
+            break
+        if not event_section or not line.lower().startswith("dialogue:"):
+            continue
 
-        parts = line.split(':', 1)[1].strip().split(',', 9)
-        if len(parts) < 10: continue
+        parts = line.split(":", 1)[1].strip().split(",", 9)
+        if len(parts) < 10:
+            continue
 
         start_time_str, end_time_str, name, text = parts[1], parts[2], parts[4], parts[9]
         event_data = {
             "start_time_raw": start_time_str,
             "end_time_raw": end_time_str,
-            "content": text.replace('\\N', '\n')
+            "content": text.replace("\\N", "\n"),
         }
-        if name.upper() == 'CAPTION':
+        if name.upper() == "CAPTION":
             captions.append(event_data)
         else:
             event_data["speaker"] = name
@@ -46,7 +51,7 @@ def parse(ass_file_path: Path) -> Tuple[List[Dict], List[Dict]]:
 
 
 # --- 独立测试入口 ---
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 设定要测试的ASS文件路径
     # 请将此路径替换为您的真实文件路径
     ASS_FILE_TO_TEST = Path(r"D:\DevProjects\PyCharmProjects\visify-ae\input\ShesBack\v3_merged_v2\01.ass")
@@ -57,10 +62,7 @@ if __name__ == '__main__':
     parsed_dialogues, parsed_captions = parse(ASS_FILE_TO_TEST)
 
     # 将结果打包到一个字典中，便于查看
-    output_data = {
-        "dialogues": parsed_dialogues,
-        "captions": parsed_captions
-    }
+    output_data = {"dialogues": parsed_dialogues, "captions": parsed_captions}
 
     # 定义输出文件，并确保目录存在
     output_dir = Path("debug")
@@ -68,10 +70,10 @@ if __name__ == '__main__':
     output_filename = output_dir / f"{ASS_FILE_TO_TEST.stem}_parsed.json"
 
     # 将解析结果写入JSON文件，以便详细检查
-    with open(output_filename, 'w', encoding='utf-8') as f:
+    with open(output_filename, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
 
-    print(f"--- [SUCCESS] ---")
+    print("--- [SUCCESS] ---")
     print(f"Total Dialogues Parsed: {len(parsed_dialogues)}")
     print(f"Total Captions Parsed: {len(parsed_captions)}")
     print(f"Results saved to: '{output_filename}'")

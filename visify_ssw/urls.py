@@ -1,15 +1,15 @@
 """
 URL configuration for visify_ssw project.
 """
-from django.contrib import admin
-from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.contrib import admin
+from django.urls import include, path
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    #path('integrations/ls/', include('apps.media_assets.urls', namespace='media_assets')),
-    path('workflow/', include('apps.workflow.urls', namespace='workflow')),
+    path("admin/", admin.site.urls),
+    # path('integrations/ls/', include('apps.media_assets.urls', namespace='media_assets')),
+    path("workflow/", include("apps.workflow.urls", namespace="workflow")),
 ]
 
 # --- [关键修复] 为开发环境提供静态和媒体文件服务 ---

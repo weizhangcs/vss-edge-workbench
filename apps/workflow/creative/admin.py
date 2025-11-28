@@ -2,21 +2,24 @@
 
 import logging
 
-from django import forms
 from django.contrib import admin, messages
 from django.http import HttpRequest
-from django.urls import path, reverse
 from django.shortcuts import redirect, render
+from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
-from .forms import CreativeProjectForm, NarrationConfigurationForm, DubbingConfigurationForm, \
-    LocalizeConfigurationForm  # 导入新表单
-from .projects import CreativeProject, CreativeBatch
+from .forms import (  # 导入新表单
+    BatchCreationForm,
+    CreativeProjectForm,
+    DubbingConfigurationForm,
+    LocalizeConfigurationForm,
+    NarrationConfigurationForm,
+)
 from .jobs import CreativeJob
+from .projects import CreativeBatch, CreativeProject
+from .services.orchestrator import CreativeOrchestrator  # 导入新服务
 
-from .services.orchestrator import CreativeOrchestrator # 导入新服务
-from .forms import BatchCreationForm
 # [!!!] 注意：我们不再从这里导入 tasks
 
 logger = logging.getLogger(__name__)
@@ -27,8 +30,7 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
     resolver = request.resolver_match
 
     # [关键修复] 1. 防御性检查：确保视图匹配正确的模型
-    if not (resolver and
-            resolver.view_name.startswith("admin:workflow_creativeproject_")):
+    if not (resolver and resolver.view_name.startswith("admin:workflow_creativeproject_")):
         return []
 
     # 2. 检查是否有 object_id (确认是 detail view)
@@ -46,30 +48,28 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
             {
                 "title": "步骤 1：解说词推理",
                 "link": reverse("admin:workflow_creativeproject_tab_1_narration", args=[object_id]),
-                "active": current_view_name in [
-                    "admin:workflow_creativeproject_tab_1_narration",
-                    default_change_view_name
-                ]
+                "active": current_view_name
+                in ["admin:workflow_creativeproject_tab_1_narration", default_change_view_name],
             },
             {
                 "title": "步骤 1.5：多语言分发",  # [新增 Tab]
                 "link": reverse("admin:workflow_creativeproject_tab_1_5_localize", args=[object_id]),
-                "active": current_view_name == "admin:workflow_creativeproject_tab_1_5_localize"
+                "active": current_view_name == "admin:workflow_creativeproject_tab_1_5_localize",
             },
             {
                 "title": "步骤 2：配音推理",
                 "link": reverse("admin:workflow_creativeproject_tab_2_audio", args=[object_id]),
-                "active": current_view_name == "admin:workflow_creativeproject_tab_2_audio"
+                "active": current_view_name == "admin:workflow_creativeproject_tab_2_audio",
             },
             {
                 "title": "步骤 3：剪辑脚本推理",
                 "link": reverse("admin:workflow_creativeproject_tab_3_edit", args=[object_id]),
-                "active": current_view_name == "admin:workflow_creativeproject_tab_3_edit"
+                "active": current_view_name == "admin:workflow_creativeproject_tab_3_edit",
             },
             {  # [新增]
                 "title": "步骤 4：视频合成",
                 "link": reverse("admin:workflow_creativeproject_tab_4_synthesis", args=[object_id]),
-                "active": current_view_name == "admin:workflow_creativeproject_tab_4_synthesis"
+                "active": current_view_name == "admin:workflow_creativeproject_tab_4_synthesis",
             },
         ]
     return [{"models": [{"name": "workflow.creativeproject", "detail": True}], "items": tab_items}]
@@ -79,49 +79,40 @@ class CreativeJobInline(TabularInline):
     model = CreativeJob
     extra = 0
     can_delete = False
-    list_display = ('job_type', 'status', 'cloud_task_id', 'created', 'modified')
-    readonly_fields = list_display + ('input_params',)
+    list_display = ("job_type", "status", "cloud_task_id", "created", "modified")
+    readonly_fields = list_display + ("input_params",)
 
-    def has_add_permission(self, request, obj=None): return False
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(CreativeProject)
 class CreativeProjectAdmin(ModelAdmin):
     form = CreativeProjectForm
 
-    list_display = ('name', 'asset', 'status', 'created', 'view_current_project', 'go_to_inference')
-    search_fields = ('name', 'inference_project__name', 'asset__title')
-    autocomplete_fields = ['inference_project']
+    list_display = ("name", "asset", "status", "created", "view_current_project", "go_to_inference")
+    search_fields = ("name", "inference_project__name", "asset__title")
+    autocomplete_fields = ["inference_project"]
 
-    base_fieldsets = (
-        (None, {'fields': ('name', 'description', 'status', 'inference_project', 'asset')}),
-    )
-    tab_1_fieldsets = base_fieldsets + (
-        ('步骤 1 产出物', {'fields': ('narration_script_file',)}),
-    )
+    base_fieldsets = ((None, {"fields": ("name", "description", "status", "inference_project", "asset")}),)
+    tab_1_fieldsets = base_fieldsets + (("步骤 1 产出物", {"fields": ("narration_script_file",)}),)
     # [新增] Fieldset 用于本地化 Tab
     tab_1_5_fieldsets = (
-        (None, {'fields': ('name', 'status', 'asset')}),
-        ('本地化产出物', {'fields': ('localized_script_file',)}),
+        (None, {"fields": ("name", "status", "asset")}),
+        ("本地化产出物", {"fields": ("localized_script_file",)}),
     )
-    tab_2_fieldsets = base_fieldsets + (
-        ('步骤 2 产出物', {'fields': ('dubbing_script_file',)}),  # <--- 字段重命名
-    )
-    tab_3_fieldsets = base_fieldsets + (
-        ('步骤 3 产出物', {'fields': ('edit_script_file',)}),
-    )
-    tab_4_fieldsets = base_fieldsets + (
-        ('步骤 4 产出物', {'fields': ('final_video_file',)}),
-    )
+    tab_2_fieldsets = base_fieldsets + (("步骤 2 产出物", {"fields": ("dubbing_script_file",)}),)  # <--- 字段重命名
+    tab_3_fieldsets = base_fieldsets + (("步骤 3 产出物", {"fields": ("edit_script_file",)}),)
+    tab_4_fieldsets = base_fieldsets + (("步骤 4 产出物", {"fields": ("final_video_file",)}),)
 
     # [!!! 核心修正] 确保新的状态字段被添加
-    readonly_fields = ('asset', 'status')  # [新增]
+    readonly_fields = ("asset", "status")  # [新增]
 
     inlines = [CreativeJobInline]
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
-            return ((None, {'fields': ('name', 'description', 'inference_project')}),)
+            return ((None, {"fields": ("name", "description", "inference_project")}),)
         view_name = request.resolver_match.view_name
         if view_name == "admin:workflow_creativeproject_tab_2_audio":
             return self.tab_2_fieldsets
@@ -140,19 +131,33 @@ class CreativeProjectAdmin(ModelAdmin):
             return f"{self.model._meta.app_label}_{self.model._meta.model_name}_{view_name}"
 
         custom_urls = [
-            path('<uuid:object_id>/change/tab-1-narration/', self.admin_site.admin_view(self.tab_1_narration_view),
-                 name=get_url_name('tab_1_narration')),
+            path(
+                "<uuid:object_id>/change/tab-1-narration/",
+                self.admin_site.admin_view(self.tab_1_narration_view),
+                name=get_url_name("tab_1_narration"),
+            ),
             # [新增] Tab 1.5 路由
-            path('<uuid:object_id>/change/tab-1-5-localize/',
-                 self.admin_site.admin_view(self.tab_1_5_localize_view),
-                 name=f"{self.model._meta.app_label}_{self.model._meta.model_name}_tab_1_5_localize"),
-            path('<uuid:object_id>/change/tab-2-audio/', self.admin_site.admin_view(self.tab_2_audio_view),
-                 name=get_url_name('tab_2_audio')),
-            path('<uuid:object_id>/change/tab-3-edit/', self.admin_site.admin_view(self.tab_3_edit_view),
-                 name=get_url_name('tab_3_edit')),
-            path('<uuid:object_id>/change/tab-4-synthesis/', self.admin_site.admin_view(self.tab_4_synthesis_view),
-                 # [新增]
-                 name=get_url_name('tab_4_synthesis')),
+            path(
+                "<uuid:object_id>/change/tab-1-5-localize/",
+                self.admin_site.admin_view(self.tab_1_5_localize_view),
+                name=f"{self.model._meta.app_label}_{self.model._meta.model_name}_tab_1_5_localize",
+            ),
+            path(
+                "<uuid:object_id>/change/tab-2-audio/",
+                self.admin_site.admin_view(self.tab_2_audio_view),
+                name=get_url_name("tab_2_audio"),
+            ),
+            path(
+                "<uuid:object_id>/change/tab-3-edit/",
+                self.admin_site.admin_view(self.tab_3_edit_view),
+                name=get_url_name("tab_3_edit"),
+            ),
+            path(
+                "<uuid:object_id>/change/tab-4-synthesis/",
+                self.admin_site.admin_view(self.tab_4_synthesis_view),
+                # [新增]
+                name=get_url_name("tab_4_synthesis"),
+            ),
         ]
         return custom_urls + urls
 
@@ -172,12 +177,12 @@ class CreativeProjectAdmin(ModelAdmin):
         # 我们不需要在这里绑定 POST 数据，因为 POST 请求会直接打到 trigger_narration_view
         form = NarrationConfigurationForm()
 
-        form_url = reverse('workflow:creative_trigger_narration', args=[project.pk])
+        form_url = reverse("workflow:creative_trigger_narration", args=[project.pk])
 
-        context['trigger_text'] = "▶️ 生成解说词 (步骤 1)"
-        context['trigger_disabled'] = project.status != CreativeProject.STATUS.PENDING
-        context['help_text'] = "请配置解说词的叙事方向和风格。"
-        context['configuration_form'] = form  # [关键] 将表单注入上下文
+        context["trigger_text"] = "▶️ 生成解说词 (步骤 1)"
+        context["trigger_disabled"] = project.status != CreativeProject.STATUS.PENDING
+        context["help_text"] = "请配置解说词的叙事方向和风格。"
+        context["configuration_form"] = form  # [关键] 将表单注入上下文
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -189,22 +194,27 @@ class CreativeProjectAdmin(ModelAdmin):
 
         form = LocalizeConfigurationForm()
 
-        form_url = reverse('workflow:creative_trigger_localize', args=[project.pk])
+        form_url = reverse("workflow:creative_trigger_localize", args=[project.pk])
 
-        context['trigger_text'] = "▶️ 启动本地化翻译 (步骤 1.5)"
+        context["trigger_text"] = "▶️ 启动本地化翻译 (步骤 1.5)"
         # 只有当母本解说词完成后，才能进行本地化
-        context['trigger_disabled'] = not (project.status in [CreativeProject.STATUS.NARRATION_COMPLETED,
-                                                              CreativeProject.STATUS.AUDIO_COMPLETED,
-                                                              CreativeProject.STATUS.EDIT_COMPLETED,
-                                                              CreativeProject.STATUS.COMPLETED])
+        context["trigger_disabled"] = not (
+            project.status
+            in [
+                CreativeProject.STATUS.NARRATION_COMPLETED,
+                CreativeProject.STATUS.AUDIO_COMPLETED,
+                CreativeProject.STATUS.EDIT_COMPLETED,
+                CreativeProject.STATUS.COMPLETED,
+            ]
+        )
 
         if not project.narration_script_file:
-            context['trigger_disabled'] = True
-            context['help_text'] = "请先完成步骤 1 生成中文母本。"
+            context["trigger_disabled"] = True
+            context["help_text"] = "请先完成步骤 1 生成中文母本。"
         else:
-            context['help_text'] = "基于中文母本，生成目标语言的发行脚本。"
+            context["help_text"] = "基于中文母本，生成目标语言的发行脚本。"
 
-        context['configuration_form'] = form
+        context["configuration_form"] = form
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
@@ -212,14 +222,14 @@ class CreativeProjectAdmin(ModelAdmin):
         context = extra_context or {}
         project = self.get_object(request, object_id)
 
-        form = DubbingConfigurationForm() # 默认值即可
+        form = DubbingConfigurationForm()  # 默认值即可
 
-        form_url = reverse('workflow:creative_trigger_audio', args=[project.pk])
+        form_url = reverse("workflow:creative_trigger_audio", args=[project.pk])
 
-        context['trigger_text'] = "▶️ 生成配音 (步骤 2)"
-        context['trigger_disabled'] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
-        context['help_text'] = "配置配音的音色和语速。风格默认继承自解说词。"
-        context['configuration_form'] = form # [关键] 将表单注入上下文
+        context["trigger_text"] = "▶️ 生成配音 (步骤 2)"
+        context["trigger_disabled"] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
+        context["help_text"] = "配置配音的音色和语速。风格默认继承自解说词。"
+        context["configuration_form"] = form  # [关键] 将表单注入上下文
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -228,12 +238,12 @@ class CreativeProjectAdmin(ModelAdmin):
         context = extra_context or {}
         project = self.get_object(request, object_id)
 
-        form_url = reverse('workflow:creative_trigger_edit', args=[project.pk])
-        #form_url = reverse('admin:workflow_creativeproject_tab_3_edit', args=[project.pk])
+        form_url = reverse("workflow:creative_trigger_edit", args=[project.pk])
+        # form_url = reverse('admin:workflow_creativeproject_tab_3_edit', args=[project.pk])
 
-        context['trigger_text'] = "▶️ 生成剪辑脚本 (步骤 3)"
-        context['trigger_disabled'] = project.status != CreativeProject.STATUS.AUDIO_COMPLETED
-        context['help_text'] = "当配音生成后，点击此按钮生成剪辑脚本。"
+        context["trigger_text"] = "▶️ 生成剪辑脚本 (步骤 3)"
+        context["trigger_disabled"] = project.status != CreativeProject.STATUS.AUDIO_COMPLETED
+        context["help_text"] = "当配音生成后，点击此按钮生成剪辑脚本。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -242,11 +252,11 @@ class CreativeProjectAdmin(ModelAdmin):
         context = extra_context or {}
         project = self.get_object(request, object_id)
 
-        form_url = reverse('workflow:creative_trigger_synthesis', args=[project.pk])
+        form_url = reverse("workflow:creative_trigger_synthesis", args=[project.pk])
 
-        context['trigger_text'] = "▶️ 开始视频合成 (步骤 4)"
-        context['trigger_disabled'] = project.status != CreativeProject.STATUS.EDIT_COMPLETED
-        context['help_text'] = "当剪辑脚本生成后，点击此按钮调用本地 FFmpeg 进程完成音视频合成。"
+        context["trigger_text"] = "▶️ 开始视频合成 (步骤 4)"
+        context["trigger_disabled"] = project.status != CreativeProject.STATUS.EDIT_COMPLETED
+        context["help_text"] = "当剪辑脚本生成后，点击此按钮调用本地 FFmpeg 进程完成音视频合成。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
@@ -259,30 +269,30 @@ class CreativeProjectAdmin(ModelAdmin):
 
     def changeform_view(self, request, object_id, form_url, extra_context=None):
         # 这个方法现在处理 "add" (object_id=None) 和 "change" (object_id=UUID)
-        if request.method == 'POST' and object_id:
+        if request.method == "POST" and object_id:
             # 这是一个 "change" 视图的 POST
             # 它不是 "Save"，而是我们的自定义按钮
-            if 'tab-1-narration' in request.path:
-                return redirect('workflow:creative_trigger_narration', project_id=object_id)
-            if 'tab-1-5-localize' in request.path:
-                return redirect('workflow:creative_trigger_localize', project_id=object_id)
-            if 'tab-2-audio' in request.path:
-                return redirect('workflow:creative_trigger_audio', project_id=object_id)
-            if 'tab-3-edit' in request.path:
-                return redirect('workflow:creative_trigger_edit', project_id=object_id)
-            if 'tab-4-synthesis' in request.path:  # [新增]
-                return redirect('workflow:creative_trigger_synthesis', project_id=object_id)
+            if "tab-1-narration" in request.path:
+                return redirect("workflow:creative_trigger_narration", project_id=object_id)
+            if "tab-1-5-localize" in request.path:
+                return redirect("workflow:creative_trigger_localize", project_id=object_id)
+            if "tab-2-audio" in request.path:
+                return redirect("workflow:creative_trigger_audio", project_id=object_id)
+            if "tab-3-edit" in request.path:
+                return redirect("workflow:creative_trigger_edit", project_id=object_id)
+            if "tab-4-synthesis" in request.path:  # [新增]
+                return redirect("workflow:creative_trigger_synthesis", project_id=object_id)
 
         # 否则，让 Django/Unfold 正常处理 (GET 请求或 "Save" POST)
         return super().changeform_view(request, object_id, form_url, extra_context)
 
-# [新增方法] 提供快速进入当前项目详情页的“操作”按钮
+    # [新增方法] 提供快速进入当前项目详情页的“操作”按钮
     @admin.display(description="操作")
     def view_current_project(self, obj):
         """
         在 changelist 视图中添加一个“进入项目”的快捷按钮。
         """
-        url = reverse('admin:workflow_creativeproject_change', args=[obj.pk])
+        url = reverse("admin:workflow_creativeproject_change", args=[obj.pk])
         return format_html('<a href="{}" class="button">进入项目</a>', url)
 
     # [新增方法] 提供跳转到关联推理项目的导航按钮
@@ -294,7 +304,7 @@ class CreativeProjectAdmin(ModelAdmin):
         try:
             inference_proj = obj.inference_project
             # 使用 'workflow' app_label 进行跨项目导航
-            url = reverse('admin:workflow_inferenceproject_change', args=[inference_proj.pk])
+            url = reverse("admin:workflow_inferenceproject_change", args=[inference_proj.pk])
             return format_html('<a href="{}" class="button">返回推理</a>', url)
         except Exception:
             return "N/A"
@@ -302,7 +312,7 @@ class CreativeProjectAdmin(ModelAdmin):
 
 @admin.register(CreativeBatch)
 class CreativeBatchAdmin(ModelAdmin):
-    list_display = ('__str__', 'inference_project', 'total_count', 'created', 'view_projects')
+    list_display = ("__str__", "inference_project", "total_count", "created", "view_projects")
 
     # 关闭默认的 Add 按钮，因为我们要用自定义页面
     def has_add_permission(self, request):
@@ -310,26 +320,27 @@ class CreativeBatchAdmin(ModelAdmin):
 
     @admin.display(description="查看详情")
     def view_projects(self, obj):
-        url = reverse('admin:workflow_creativeproject_changelist') + f"?batch_id={obj.id}"
+        url = reverse("admin:workflow_creativeproject_changelist") + f"?batch_id={obj.id}"
         return format_html('<a href="{}" class="button">查看生成结果</a>', url)
 
     # 注册自定义 URL
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('orchestrator/', self.admin_site.admin_view(self.orchestrator_view),
-                 name='creative_batch_orchestrator'),
+            path(
+                "orchestrator/", self.admin_site.admin_view(self.orchestrator_view), name="creative_batch_orchestrator"
+            ),
         ]
         return custom_urls + urls
 
     # 编排器视图
     def orchestrator_view(self, request):
-        if request.method == 'POST':
+        if request.method == "POST":
             form = BatchCreationForm(request.POST)
             if form.is_valid():
                 data = form.cleaned_data
-                count = data.pop('count')
-                inf_proj = data.pop('inference_project')
+                count = data.pop("count")
+                inf_proj = data.pop("inference_project")
 
                 # 这里的 data 剩余部分就是 fixed_params
                 # 我们需要过滤掉空值，空值代表随机
@@ -339,9 +350,8 @@ class CreativeBatchAdmin(ModelAdmin):
                     orchestrator = CreativeOrchestrator(inference_project_id=str(inf_proj.id))
                     batch = orchestrator.create_batch(count, fixed_params)
 
-                    self.message_user(request, f"成功启动批量任务！批次ID: {batch.id}，共 {count} 个项目正在生成中。",
-                                      messages.SUCCESS)
-                    return redirect('admin:workflow_creativebatch_changelist')
+                    self.message_user(request, f"成功启动批量任务！批次ID: {batch.id}，共 {count} 个项目正在生成中。", messages.SUCCESS)
+                    return redirect("admin:workflow_creativebatch_changelist")
                 except Exception as e:
                     self.message_user(request, f"启动失败: {e}", messages.ERROR)
         else:
@@ -349,7 +359,7 @@ class CreativeBatchAdmin(ModelAdmin):
 
         context = {
             **self.admin_site.each_context(request),
-            'form': form,
-            'title': '批量创作编排器 (Orchestrator)',
+            "form": form,
+            "title": "批量创作编排器 (Orchestrator)",
         }
-        return render(request, 'admin/workflow/project/creative/orchestrator_form.html', context)
+        return render(request, "admin/workflow/project/creative/orchestrator_form.html", context)

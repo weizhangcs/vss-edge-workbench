@@ -1,15 +1,15 @@
-import json
-import zipfile
 import io
+import json
 import logging
-from pathlib import Path
+import zipfile
 from datetime import datetime
+from pathlib import Path
+
 from django.core.files.base import ContentFile
-from django.conf import settings
 from django.db import transaction
 
-from apps.workflow.models import AnnotationProject, AnnotationJob
 from apps.media_assets.models import Asset
+from apps.workflow.models import AnnotationJob, AnnotationProject
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +45,13 @@ class ProjectPortableService:
                 "source_encoding_profile_id": project.source_encoding_profile_id,
             },
             "jobs": [],
-            "files_map": {}  # 记录 字段名 -> ZIP内路径 的映射
+            "files_map": {},  # 记录 字段名 -> ZIP内路径 的映射
         }
 
         # 准备 ZIP 内存流
         zip_buffer = io.BytesIO()
 
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             # --- 辅助函数：处理文件字段 ---
             def _archive_file(model_instance, field_name, zip_path_prefix):
                 file_field = getattr(model_instance, field_name)
@@ -60,7 +59,7 @@ class ProjectPortableService:
                     # 物理文件存在性检查
                     try:
                         # 读取文件内容
-                        with file_field.open('rb') as f:
+                        with file_field.open("rb") as f:
                             file_content = f.read()
 
                         # 生成 ZIP 内的路径
@@ -76,11 +75,11 @@ class ProjectPortableService:
 
             # 2. 处理项目级文件
             project_file_fields = [
-                'label_studio_export_file',
-                'character_audit_report',
-                'character_occurrence_report',
-                'final_blueprint_file',
-                'local_metrics_result_file'
+                "label_studio_export_file",
+                "character_audit_report",
+                "character_occurrence_report",
+                "final_blueprint_file",
+                "local_metrics_result_file",
             ]
 
             for field in project_file_fields:
@@ -96,11 +95,11 @@ class ProjectPortableService:
                     "status": "COMPLETED",  # 强制完成
                     "label_studio_task_id": job.label_studio_task_id,
                     "media_sequence": job.media.sequence_number if job.media else 0,  # 通过序号关联 Media
-                    "files_map": {}
+                    "files_map": {},
                 }
 
                 # 处理 Job 的产出文件 (.ass)
-                job_file_fields = ['l1_output_file']
+                job_file_fields = ["l1_output_file"]
                 for field in job_file_fields:
                     # job files 放在 jobs/{sequence}/ 下
                     zip_path = _archive_file(job, field, f"job_files/{job_data['media_sequence']}")
@@ -110,7 +109,7 @@ class ProjectPortableService:
                 manifest["jobs"].append(job_data)
 
             # 4. 写入 Manifest
-            zf.writestr('manifest.json', json.dumps(manifest, indent=2))
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
         return zip_buffer.getvalue()
 
@@ -124,27 +123,28 @@ class ProjectPortableService:
         """
         zip_buffer = io.BytesIO(zip_bytes)
 
-        with zipfile.ZipFile(zip_buffer, 'r') as zf:
-            if 'manifest.json' not in zf.namelist():
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            if "manifest.json" not in zf.namelist():
                 raise ValueError("Invalid package: manifest.json missing")
 
-            manifest = json.loads(zf.read('manifest.json').decode('utf-8'))
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
             proj_data = manifest["project"]
 
             # [核心修改] 不再从 manifest 查找 Asset，直接使用传入的 target_asset
             # (旧逻辑已删除：try Asset.objects.get(id=proj_data.get("asset_id"))...)
 
             logger.info(
-                f"Importing project '{proj_data['name']}' into Asset: {target_asset.title} (ID: {target_asset.id})")
+                f"Importing project '{proj_data['name']}' into Asset: {target_asset.title} (ID: {target_asset.id})"
+            )
 
             # 1. 创建项目骨架
             new_project = AnnotationProject.objects.create(
                 name=f"{proj_data['name']} (Restored)",
-                description=proj_data.get('description', ''),
+                description=proj_data.get("description", ""),
                 asset=target_asset,  # 使用用户选择的 Asset
-                status='COMPLETED',  # 直接完成，跳过流程状态
-                label_studio_project_id=proj_data.get('label_studio_project_id'),
-                source_encoding_profile_id=proj_data.get('source_encoding_profile_id')
+                status="COMPLETED",  # 直接完成，跳过流程状态
+                label_studio_project_id=proj_data.get("label_studio_project_id"),
+                source_encoding_profile_id=proj_data.get("source_encoding_profile_id"),
             )
 
             # 2. 恢复项目级文件 (Blueprints, Reports)
@@ -171,16 +171,15 @@ class ProjectPortableService:
 
                 # [宽松容错] 如果目标 Asset 下找不到对应的 ep01/ep02，则跳过该 Job，不报错
                 if not target_media:
-                    logger.warning(
-                        f"Import Skipped: Media sequence {seq} not found in target Asset '{target_asset.title}'.")
+                    logger.warning(f"Import Skipped: Media sequence {seq} not in target Asset '{target_asset.title}'.")
                     continue
 
                 new_job = AnnotationJob.objects.create(
                     project=new_project,
                     media=target_media,
                     job_type=job_data["job_type"],
-                    status='COMPLETED',
-                    label_studio_task_id=job_data.get("label_studio_task_id")
+                    status="COMPLETED",
+                    label_studio_task_id=job_data.get("label_studio_task_id"),
                 )
 
                 # 恢复 Job 文件 (.ass)

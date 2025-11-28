@@ -4,19 +4,32 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workflow', '0018_remove_annotationproject_cloud_blueprint_path_and_more'),
+        ("workflow", "0018_remove_annotationproject_cloud_blueprint_path_and_more"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='annotationproject',
-            name='blueprint_status',
+            model_name="annotationproject",
+            name="blueprint_status",
         ),
         migrations.AlterField(
-            model_name='annotationproject',
-            name='status',
-            field=models.CharField(choices=[('PENDING', '待处理'), ('PROCESSING', '处理中'), ('COMPLETED', '已完成'), ('FAILED', '失败'), ('L1_AUDIT_PROCESSING', 'L1 审计中'), ('L2_EXPORTING', 'L2 导出中'), ('L3_BLUEPRINT_PROCESSING', 'L3 蓝图生成中'), ('L3_METRICS_PROCESSING', 'L3 矩阵计算中')], default='PENDING', max_length=30, verbose_name='项目状态'),
+            model_name="annotationproject",
+            name="status",
+            field=models.CharField(
+                choices=[
+                    ("PENDING", "待处理"),
+                    ("PROCESSING", "处理中"),
+                    ("COMPLETED", "已完成"),
+                    ("FAILED", "失败"),
+                    ("L1_AUDIT_PROCESSING", "L1 审计中"),
+                    ("L2_EXPORTING", "L2 导出中"),
+                    ("L3_BLUEPRINT_PROCESSING", "L3 蓝图生成中"),
+                    ("L3_METRICS_PROCESSING", "L3 矩阵计算中"),
+                ],
+                default="PENDING",
+                max_length=30,
+                verbose_name="项目状态",
+            ),
         ),
     ]

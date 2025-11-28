@@ -4,15 +4,20 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('configuration', '0005_integrationsettings_aws_access_key_id_and_more'),
+        ("configuration", "0005_integrationsettings_aws_access_key_id_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='integrationsettings',
-            name='label_studio_access_token',
-            field=models.CharField(blank=True, help_text='从 Label Studio 的个人账户设置中获取 (Account Settings -> Access Tokens)', max_length=255, null=True, verbose_name='Label Studio API Token'),
+            model_name="integrationsettings",
+            name="label_studio_access_token",
+            field=models.CharField(
+                blank=True,
+                help_text="从 Label Studio 的个人账户设置中获取 (Account Settings -> Access Tokens)",
+                max_length=255,
+                null=True,
+                verbose_name="Label Studio API Token",
+            ),
         ),
     ]

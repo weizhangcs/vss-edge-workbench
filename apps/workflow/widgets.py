@@ -1,13 +1,21 @@
 # 文件路径: apps/workflow/widgets.py
 
+from django.template.loader import render_to_string
 from django.utils.safestring import mark_safe
 from unfold.widgets import UnfoldAdminFileFieldWidget
-from django.template.loader import render_to_string
 
 
 class FileFieldWithActionButtonWidget(UnfoldAdminFileFieldWidget):
-    def __init__(self, attrs=None, button_url=None, button_text=None, button_variant="primary",
-                 secondary_button_url=None, secondary_button_text=None, secondary_button_variant="default"):
+    def __init__(
+        self,
+        attrs=None,
+        button_url=None,
+        button_text=None,
+        button_variant="primary",
+        secondary_button_url=None,
+        secondary_button_text=None,
+        secondary_button_variant="default",
+    ):
         super().__init__(attrs)
         #
         self.button_url = button_url
@@ -28,7 +36,7 @@ class FileFieldWithActionButtonWidget(UnfoldAdminFileFieldWidget):
                 "href": self.button_url,
                 "content": self.button_text,
                 "variant": self.button_variant,
-                "attrs": {"class": "ml-2"}
+                "attrs": {"class": "ml-2"},
             }
             button_html = render_to_string("admin/components/_action_button.html", button_context)
 
@@ -39,7 +47,7 @@ class FileFieldWithActionButtonWidget(UnfoldAdminFileFieldWidget):
                 "href": self.secondary_button_url,
                 "content": self.secondary_button_text,
                 "variant": self.secondary_button_variant,
-                "attrs": {"class": "ml-2 js-cloud-trigger-btn"} # <-- [!!!] 在这里添加
+                "attrs": {"class": "ml-2 js-cloud-trigger-btn"},  # <-- [!!!] 在这里添加
             }
             secondary_button_html = render_to_string("admin/components/_action_button.html", secondary_button_context)
 

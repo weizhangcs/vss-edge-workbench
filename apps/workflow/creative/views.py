@@ -1,13 +1,20 @@
 # 文件路径: apps/workflow/creative/views.py
 
 import logging
+
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 
+from .forms import DubbingConfigurationForm, LocalizeConfigurationForm, NarrationConfigurationForm
 from .projects import CreativeProject
-from .tasks import start_narration_task, start_audio_task, start_edit_script_task, start_synthesis_task,start_localize_task
-from .forms import NarrationConfigurationForm, DubbingConfigurationForm, LocalizeConfigurationForm
+from .tasks import (
+    start_audio_task,
+    start_edit_script_task,
+    start_localize_task,
+    start_narration_task,
+    start_synthesis_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +25,13 @@ def trigger_narration_view(request, project_id):
     """
     project = get_object_or_404(CreativeProject, id=project_id)
 
-    if request.method == 'POST':
+    if request.method == "POST":
         # 1. 绑定数据
         form = NarrationConfigurationForm(request.POST)
 
         if project.status != CreativeProject.STATUS.PENDING:
-            messages.warning(request, f"项目状态不对，无法启动。")
-            return redirect(reverse('admin:workflow_creativeproject_tab_1_narration', args=[project_id]))
+            messages.warning(request, "项目状态不对，无法启动。")
+            return redirect(reverse("admin:workflow_creativeproject_tab_1_narration", args=[project_id]))
 
         if form.is_valid():
             # 2. 提取清洗后的数据
@@ -36,7 +43,7 @@ def trigger_narration_view(request, project_id):
             # 简单处理错误，实际生产中可能需要带错误重定向回页面
             messages.error(request, f"参数配置有误: {form.errors.as_text()}")
 
-    return redirect(reverse('admin:workflow_creativeproject_tab_1_narration', args=[project_id]))
+    return redirect(reverse("admin:workflow_creativeproject_tab_1_narration", args=[project_id]))
 
 
 def trigger_localize_view(request, project_id):
@@ -45,13 +52,13 @@ def trigger_localize_view(request, project_id):
     """
     project = get_object_or_404(CreativeProject, id=project_id)
 
-    if request.method == 'POST':
+    if request.method == "POST":
         form = LocalizeConfigurationForm(request.POST)
 
         # 校验：必须有母本文件
         if not project.narration_script_file:
             messages.error(request, "未找到母本解说词，无法本地化。")
-            return redirect(reverse('admin:workflow_creativeproject_tab_1_5_localize', args=[project_id]))
+            return redirect(reverse("admin:workflow_creativeproject_tab_1_5_localize", args=[project_id]))
 
         if form.is_valid():
             config = form.cleaned_data
@@ -60,7 +67,8 @@ def trigger_localize_view(request, project_id):
         else:
             messages.error(request, f"参数错误: {form.errors.as_text()}")
 
-    return redirect(reverse('admin:workflow_creativeproject_tab_1_5_localize', args=[project_id]))
+    return redirect(reverse("admin:workflow_creativeproject_tab_1_5_localize", args=[project_id]))
+
 
 def trigger_audio_view(request, project_id):
     """
@@ -68,12 +76,12 @@ def trigger_audio_view(request, project_id):
     """
     project = get_object_or_404(CreativeProject, id=project_id)
 
-    if request.method == 'POST':
+    if request.method == "POST":
         form = DubbingConfigurationForm(request.POST)
 
         if project.status != CreativeProject.STATUS.NARRATION_COMPLETED:
             messages.warning(request, "请先完成解说词步骤。")
-            return redirect(reverse('admin:workflow_creativeproject_tab_2_audio', args=[project_id]))
+            return redirect(reverse("admin:workflow_creativeproject_tab_2_audio", args=[project_id]))
 
         if form.is_valid():
             config_data = form.cleaned_data
@@ -82,7 +90,7 @@ def trigger_audio_view(request, project_id):
         else:
             messages.error(request, f"参数错误: {form.errors.as_text()}")
 
-    return redirect(reverse('admin:workflow_creativeproject_tab_2_audio', args=[project_id]))
+    return redirect(reverse("admin:workflow_creativeproject_tab_2_audio", args=[project_id]))
 
 
 def trigger_edit_view(request, project_id):
@@ -96,9 +104,10 @@ def trigger_edit_view(request, project_id):
     else:
         messages.warning(request, "必须先完成配音才能生成剪辑脚本。")
 
-    return redirect(reverse('admin:workflow_creativeproject_tab_3_edit', args=[project_id]))
+    return redirect(reverse("admin:workflow_creativeproject_tab_3_edit", args=[project_id]))
 
-def trigger_synthesis_view(request, project_id): # [新增]
+
+def trigger_synthesis_view(request, project_id):  # [新增]
     """
     (新) 步骤 4：触发“视频合成”任务
     """
@@ -110,4 +119,4 @@ def trigger_synthesis_view(request, project_id): # [新增]
     else:
         messages.warning(request, "必须先完成剪辑脚本才能进行视频合成。")
 
-    return redirect(reverse('admin:workflow_creativeproject_tab_4_synthesis', args=[project_id]))
+    return redirect(reverse("admin:workflow_creativeproject_tab_4_synthesis", args=[project_id]))

@@ -1,8 +1,10 @@
 # 文件路径: apps/workflow/annotation/services/cloud_api.py
-import requests
 import logging
-from typing import Tuple, Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+import requests
+
 from apps.configuration.models import IntegrationSettings
 
 logger = logging.getLogger(__name__)
@@ -22,9 +24,9 @@ class CloudApiService:
             settings = None
 
         # 使用 getattr 安全获取值，并提供硬编码的回退值
-        self.BASE_URL = getattr(settings, 'cloud_api_base_url', None) or 'http://localhost:8080'
-        self.INSTANCE_ID = getattr(settings, 'cloud_instance_id', None)
-        self.API_KEY = getattr(settings, 'cloud_api_key', None)
+        self.BASE_URL = getattr(settings, "cloud_api_base_url", None) or "http://localhost:8080"
+        self.INSTANCE_ID = getattr(settings, "cloud_instance_id", None)
+        self.API_KEY = getattr(settings, "cloud_api_key", None)
 
         # 2. 验证检查
         if not self.BASE_URL or not self.INSTANCE_ID or not self.API_KEY:
@@ -51,8 +53,8 @@ class CloudApiService:
         headers = self._get_auth_headers()
 
         try:
-            with open(local_file_path, 'rb') as f:
-                files = {'file': (local_file_path.name, f)}
+            with open(local_file_path, "rb") as f:
+                files = {"file": (local_file_path.name, f)}
                 response = requests.post(upload_url, headers=headers, files=files, timeout=300)
 
             response.raise_for_status()
@@ -79,10 +81,7 @@ class CloudApiService:
         headers = self._get_auth_headers()
         headers["Content-Type"] = "application/json"
 
-        full_payload = {
-            "task_type": task_type,
-            "payload": payload
-        }
+        full_payload = {"task_type": task_type, "payload": payload}
 
         logger.info(f"正在 POST 请求: {create_url}")  # 再次确认 URL
 
@@ -96,7 +95,7 @@ class CloudApiService:
                 # 如果是 JSON，打印解析后的详情
                 try:
                     logger.error(f"响应 JSON: {response.json()}")
-                except:
+                except Exception:  # 明确指定 Exception
                     pass
 
             response.raise_for_status()
@@ -146,7 +145,7 @@ class CloudApiService:
         [cite_start]执行四步流程的 [第4步：下载] [cite: 27]
         """
         # download_url 已经是完整的 URL
-        if not download_url.startswith('http'):
+        if not download_url.startswith("http"):
             logger.error(f"Cloud API: 无效的 download_url (非 http): {download_url}")
             return False, None
 
@@ -171,7 +170,7 @@ class CloudApiService:
         # 构建带查询参数的 URL [cite: 219]
         download_url = f"{self.BASE_URL}/api/v1/files/download/"
         headers = self._get_auth_headers()
-        params = {'path': file_path}
+        params = {"path": file_path}
 
         try:
             response = requests.get(download_url, headers=headers, params=params, timeout=300)

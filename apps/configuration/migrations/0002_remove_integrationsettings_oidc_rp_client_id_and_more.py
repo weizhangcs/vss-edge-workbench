@@ -4,18 +4,17 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('configuration', '0001_initial'),
+        ("configuration", "0001_initial"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='integrationsettings',
-            name='oidc_rp_client_id',
+            model_name="integrationsettings",
+            name="oidc_rp_client_id",
         ),
         migrations.RemoveField(
-            model_name='integrationsettings',
-            name='oidc_rp_client_secret',
+            model_name="integrationsettings",
+            name="oidc_rp_client_secret",
         ),
     ]

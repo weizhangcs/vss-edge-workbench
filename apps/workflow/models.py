@@ -1,18 +1,28 @@
-# jobs/models.py
+# /apps/workflow/models.py
 
 # --- 从新的 transcoding 子包导入 ---
-from .transcoding.projects import TranscodingProject
-from .transcoding.jobs import TranscodingJob
+from .annotation.jobs import AnnotationJob
 
 # --- 从 annotation 子包导入 ---
 from .annotation.projects import AnnotationProject
-from .annotation.jobs import AnnotationJob
+from .creative.jobs import CreativeJob
+from .creative.projects import CreativeProject
 
 # --- 从新的 delivery 子包导入 ---
 from .delivery.jobs import DeliveryJob
 
 # --- 从 inference 子包导入 ---
 from .inference.projects import InferenceProject
+from .transcoding.jobs import TranscodingJob
+from .transcoding.projects import TranscodingProject
 
-from .creative.projects import CreativeProject
-from .creative.jobs import CreativeJob
+__all__ = [
+    "AnnotationJob",
+    "AnnotationProject",
+    "CreativeJob",
+    "CreativeProject",
+    "DeliveryJob",
+    "InferenceProject",
+    "TranscodingJob",
+    "TranscodingProject",
+]

@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workflow', '0015_annotationproject_cloud_blueprint_path_and_more'),
+        ("workflow", "0015_annotationproject_cloud_blueprint_path_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='annotationproject',
-            name='character_occurrence_report',
-            field=models.FileField(blank=True, null=True, upload_to='audit_reports/l1_character_occurrences/', verbose_name='角色出现详情 (日志)'),
+            model_name="annotationproject",
+            name="character_occurrence_report",
+            field=models.FileField(
+                blank=True, null=True, upload_to="audit_reports/l1_character_occurrences/", verbose_name="角色出现详情 (日志)"
+            ),
         ),
     ]

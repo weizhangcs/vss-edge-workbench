@@ -1,13 +1,15 @@
 # 文件路径: apps/workflow/annotation/services/audit_service.py
 
-import logging
 import csv
 import io
+import logging
 from collections import defaultdict
 from datetime import datetime
+
 from django.core.files.base import ContentFile
-from ...models import AnnotationProject, AnnotationJob
+
 from ...common.baseJob import BaseJob
+from ...models import AnnotationJob, AnnotationProject
 
 # 初始化 logger
 logger = logging.getLogger(__name__)
@@ -34,13 +36,13 @@ class L1AuditService:
         健壮的 .ass 时间戳解析器。
         """
         try:
-            start = datetime.strptime(start_str.strip(), '%H:%M:%S.%f')
-            end = datetime.strptime(end_str.strip(), '%H:%M:%S.%f')
+            start = datetime.strptime(start_str.strip(), "%H:%M:%S.%f")
+            end = datetime.strptime(end_str.strip(), "%H:%M:%S.%f")
             return (end - start).total_seconds()
         except ValueError:
             try:
-                start = datetime.strptime(start_str.strip(), '%H:%M:%S')
-                end = datetime.strptime(end_str.strip(), '%H:%M:%S')
+                start = datetime.strptime(start_str.strip(), "%H:%M:%S")
+                end = datetime.strptime(end_str.strip(), "%H:%M:%S")
                 return (end - start).total_seconds()
             except Exception:
                 return 0.0
@@ -52,15 +54,17 @@ class L1AuditService:
         """
         report_rows = []
         for name, data in stats.items():
-            count = data.get('count', 0)
-            percentage = f"{(count / total_dialogues) * 100:.2f}%" if total_dialogues > 0 else "0.00%"
-            report_rows.append({
-                "character_name": name,
-                "dialogue_count": count,
-                "percentage": percentage,
-                "total_duration_seconds": round(data.get('duration', 0.0), 2),
-                "total_length_chars": data.get('length', 0)
-            })
+            count = data.get("count", 0)
+            percentage = f"{(count / total_dialogues) * 100:.2f}%" if total_dialogues > 0 else "0.00%"  # noqa: E231
+            report_rows.append(
+                {
+                    "character_name": name,
+                    "dialogue_count": count,
+                    "percentage": percentage,
+                    "total_duration_seconds": round(data.get("duration", 0.0), 2),
+                    "total_length_chars": data.get("length", 0),
+                }
+            )
         report_rows.sort(key=lambda x: x["dialogue_count"], reverse=True)
         header = ["character_name", "dialogue_count", "percentage", "total_duration_seconds", "total_length_chars"]
 
@@ -93,8 +97,8 @@ class L1AuditService:
             project=self.project,
             job_type=AnnotationJob.TYPE.L1_SUBEDITING,
             status__in=[BaseJob.STATUS.COMPLETED, BaseJob.STATUS.REVISING],  # (已修复: 包含 REVISING)
-            l1_output_file__isnull=False
-        ).exclude(l1_output_file='')
+            l1_output_file__isnull=False,
+        ).exclude(l1_output_file="")
 
         if not l1_jobs:
             logger.warning(f"项目 {self.project.name} 中没有找到已完成或修订中的 L1 .ass 文件。")
@@ -115,9 +119,9 @@ class L1AuditService:
                 if not job.l1_output_file:
                     continue
 
-                job.l1_output_file.open('rb')
+                job.l1_output_file.open("rb")
                 content_bytes = job.l1_output_file.read()
-                content = content_bytes.decode('utf-8-sig')
+                content = content_bytes.decode("utf-8-sig")
                 job.l1_output_file.close()
 
                 in_events = False
@@ -133,31 +137,33 @@ class L1AuditService:
                         continue
 
                     try:
-                        parts = line_strip.split(',', 9)
+                        parts = line_strip.split(",", 9)
                         if len(parts) < 10:
                             continue
 
                         start_str, end_str, actor_raw, text = parts[1], parts[2], parts[4], parts[9]
-                        actor = actor_raw.split(',')[0].strip()
+                        actor = actor_raw.split(",")[0].strip()
 
                         if not actor or actor.upper() in functional_names:
                             continue  # 忽略功能性角色
 
                         # --- 1. 填充“摘要”数据 ---
-                        stats[actor]['count'] += 1
-                        stats[actor]['length'] += len(text)
-                        stats[actor]['duration'] += self._parse_duration(start_str, end_str)
+                        stats[actor]["count"] += 1
+                        stats[actor]["length"] += len(text)
+                        stats[actor]["duration"] += self._parse_duration(start_str, end_str)
                         total_dialogues += 1
 
                         # --- 2. 填充“详情”数据 (来自 Code 1 - find_occurrences) ---
                         # 我们将记录所有*非功能性*角色的出现
                         # "search_in: 'actor'" 逻辑
-                        occurrences.append({
-                            "file_name": job.l1_output_file.name.split('/')[-1],
-                            "line_number": i,
-                            "found_in": actor,  # (优化: 直接使用 actor 名字)
-                            "line_content": text  # (优化: 只保存文本)
-                        })
+                        occurrences.append(
+                            {
+                                "file_name": job.l1_output_file.name.split("/")[-1],
+                                "line_number": i,
+                                "found_in": actor,  # (优化: 直接使用 actor 名字)
+                                "line_content": text,  # (优化: 只保存文本)
+                            }
+                        )
 
                     except IndexError:
                         continue
@@ -176,9 +182,7 @@ class L1AuditService:
         summary_csv = self._generate_summary_csv(stats, total_dialogues)
         summary_filename = f"character_SUMMARY_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self.project.character_audit_report.save(
-            summary_filename,
-            ContentFile(summary_csv.encode('utf-8-sig')),
-            save=False  # (我们稍后一起保存)
+            summary_filename, ContentFile(summary_csv.encode("utf-8-sig")), save=False  # (我们稍后一起保存)
         )
         logger.info("“摘要”报告已生成。")
 
@@ -186,9 +190,7 @@ class L1AuditService:
         occurrence_csv = self._generate_occurrence_csv(occurrences)
         occurrence_filename = f"character_OCCURRENCES_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self.project.character_occurrence_report.save(
-            occurrence_filename,
-            ContentFile(occurrence_csv.encode('utf-8-sig')),
-            save=False
+            occurrence_filename, ContentFile(occurrence_csv.encode("utf-8-sig")), save=False
         )
         logger.info("“详情”报告已生成。")
 

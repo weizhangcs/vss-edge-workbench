@@ -7,22 +7,24 @@ from pathlib import Path
 from celery import shared_task
 from django.core.files.base import ContentFile
 
+from apps.workflow.common.baseJob import BaseJob
+
 # 导入 Celery App 实例，用于链式调用
 from visify_ssw.celery import app as celery_app
 
-from .projects import InferenceProject, InferenceJob
-# 注意：CreativeJob 将在函数内部动态导入以避免循环引用
-from apps.workflow.models import AnnotationProject
-from apps.workflow.common.baseJob import BaseJob
+from .projects import InferenceJob
 from .services.cloud_api import CloudApiService
+
+# 注意：CreativeJob 将在函数内部动态导入以避免循环引用
+
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, name="apps.workflow.inference.tasks.poll_cloud_task_status", max_retries=20,
-             default_retry_delay=30)
-def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_task_name: str,
-                           on_complete_kwargs: dict):
+@shared_task(
+    bind=True, name="apps.workflow.inference.tasks.poll_cloud_task_status", max_retries=50, default_retry_delay=30
+)
+def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_task_name: str, on_complete_kwargs: dict):
     """
     (已重构 V3.2 - 智能兼容版)
     通用的云端任务轮询器。
@@ -38,7 +40,7 @@ def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_ta
     try:
         # --- 核心修复：智能路由逻辑 ---
         # 如果回调任务属于 creative 应用，则去查 CreativeJob
-        if 'apps.workflow.creative' in on_complete_task_name:
+        if "apps.workflow.creative" in on_complete_task_name:
             job_type_label = "CreativeJob"
             job = CreativeJob.objects.get(id=job_id)
         else:
@@ -55,14 +57,13 @@ def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_ta
     try:
         service = CloudApiService()
         success, data = service.get_task_status(cloud_task_id)
-    except Exception as e:
+    except Exception:
         logger.error(f"[PollTask] API查询失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。", exc_info=True)
         self.retry()  # 仅在API/网络错误时重试
         return
 
     if not success:
-        logger.warning(
-            f"[PollTask] 查询云端任务 {cloud_task_id} 失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。")
+        logger.warning(f"[PollTask] 查询云端任务 {cloud_task_id} 失败 (Job: {job_id})，将在 {self.default_retry_delay} 秒后重试。")
         self.retry()
         return
 
@@ -70,16 +71,15 @@ def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_ta
 
     if status == "COMPLETED":
         logger.info(f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 已完成。触发后续任务: {on_complete_task_name}")
-        celery_app.send_task(on_complete_task_name, kwargs={
-            'job_id': job_id,
-            'cloud_task_data': data,
-            **on_complete_kwargs
-        })
+        celery_app.send_task(
+            on_complete_task_name, kwargs={"job_id": job_id, "cloud_task_data": data, **on_complete_kwargs}
+        )
 
     elif status in ["PENDING", "RUNNING"]:
         # 成功的查询，但任务未完成，进入下一次重试。
         logger.info(
-            f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 仍在 {status} 状态，将在 {self.default_retry_delay} 秒后重试。")
+            f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 仍在 {status} 状态，将在 {self.default_retry_delay} 秒后重试。"
+        )
         self.retry()  # 再次发起重试，程序会在此处停止并抛出 Retry 异常。
 
     elif status == "FAILED":
@@ -88,8 +88,7 @@ def poll_cloud_task_status(self, job_id: str, cloud_task_id: int, on_complete_ta
         job.save()
 
     else:
-        logger.error(
-            f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 返回未知状态: '{status}'。")
+        logger.error(f"[PollTask] 云端任务 {cloud_task_id} (Job: {job_id}) 返回未知状态: '{status}'。")
         job.fail()
         job.save()
 
@@ -116,7 +115,7 @@ def start_rag_deployment_task(job_id: str, **kwargs):
 
     try:
         # 1. 从 input_params 获取源 Job ID
-        source_facts_job_id = job.input_params.get('source_facts_job_id')
+        source_facts_job_id = job.input_params.get("source_facts_job_id")
         if not source_facts_job_id:
             raise ValueError("input_params 中缺少 'source_facts_job_id'。")
 
@@ -139,21 +138,21 @@ def start_rag_deployment_task(job_id: str, **kwargs):
         payload = {
             "blueprint_input_path": job.cloud_blueprint_path,
             "facts_input_path": job.cloud_facts_path,
-            "asset_id": str(project.asset.id)
+            "asset_id": str(project.asset.id),
         }
         success, task_data = service.create_task("DEPLOY_RAG_CORPUS", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create DEPLOY_RAG_CORPUS task'))
+            raise Exception(task_data.get("message", "Failed to create DEPLOY_RAG_CORPUS task"))
 
-        job.cloud_task_id = task_data['id']
+        job.cloud_task_id = task_data["id"]
         job.save()
 
         # 4. 触发轮询
         poll_cloud_task_status.delay(
             job_id=job_id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.inference.tasks.finalize_rag_deployment',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.inference.tasks.finalize_rag_deployment",
+            on_complete_kwargs={},
         )
     except Exception as e:
         logger.error(f"[RAGDeploy] Job {job_id} 失败: {e}", exc_info=True)
@@ -198,32 +197,32 @@ def finalize_rag_deployment(job_id: str, cloud_task_data: dict, **kwargs):
 
                 # 4. 解析 JSON 并提取字段
                 try:
-                    report_data = json.loads(content.decode('utf-8'))
+                    report_data = json.loads(content.decode("utf-8"))
                     total_scene_count = report_data.get("total_scene_count")
 
                     if total_scene_count is not None:
                         project.rag_total_scene_count = total_scene_count
                         logger.info(f"[RAGFinal] 策略2命中: 从下载的文件中获取到 count: {total_scene_count}")
                     else:
-                        logger.warning(f"[RAGFinal] 文件下载成功，但 JSON 中缺少 total_scene_count 字段。")
+                        logger.warning("[RAGFinal] 文件下载成功，但 JSON 中缺少 total_scene_count 字段。")
 
                 except json.JSONDecodeError:
-                    logger.error(f"[RAGFinal] 下载的文件不是有效的 JSON，无法提取字段。")
+                    logger.error("[RAGFinal] 下载的文件不是有效的 JSON，无法提取字段。")
             else:
                 logger.warning(f"[RAGFinal] 任务已完成，但下载 RAG 报告失败: {download_url}")
         else:
-            logger.warning(f"[RAGFinal] 云端任务完成但未提供 download_url。")
+            logger.warning("[RAGFinal] 云端任务完成但未提供 download_url。")
 
         # 5. 尝试从 'result' 直接获取 (双重保险)
         if total_scene_count is None:
-            result_data = cloud_task_data.get('result', {})
-            if isinstance(result_data, dict) and result_data.get('total_scene_count'):
-                project.rag_total_scene_count = result_data.get('total_scene_count')
+            result_data = cloud_task_data.get("result", {})
+            if isinstance(result_data, dict) and result_data.get("total_scene_count"):
+                project.rag_total_scene_count = result_data.get("total_scene_count")
                 total_scene_count = project.rag_total_scene_count  # 确保 total_scene_count 变量被更新
                 logger.info(f"[RAGFinal] 从 API result 直接提取到 total_scene_count: {project.rag_total_scene_count}")
 
         # 6. 保存 Project 和 Job 状态
-        project.save(update_fields=['rag_total_scene_count'])
+        project.save(update_fields=["rag_total_scene_count"])
 
         job.complete()
         job.save()
@@ -261,7 +260,7 @@ def start_cloud_facts_task(job_id: str, **kwargs):
         if not annotation_project.final_blueprint_file:
             raise ValueError(f"关联的 AnnotationProject {annotation_project.id} 缺少 'final_blueprint_file'。")
 
-        characters_to_analyze = job.input_params.get('characters')
+        characters_to_analyze = job.input_params.get("characters")
         if not characters_to_analyze:
             raise ValueError("input_params 中缺少 'characters'。")
 
@@ -279,23 +278,23 @@ def start_cloud_facts_task(job_id: str, **kwargs):
             "input_file_path": job.cloud_blueprint_path,
             "service_params": {
                 "characters_to_analyze": characters_to_analyze,
-                "lang": annotation_project.asset.language.split('-')[0] if annotation_project.asset.language else "zh",
+                "lang": annotation_project.asset.language.split("-")[0] if annotation_project.asset.language else "zh",
                 "model": "gemini-2.5-flash",
-                "temp": 0.1
-            }
+                "temp": 0.1,
+            },
         }
         success, task_data = service.create_task("CHARACTER_IDENTIFIER", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create CHARACTER_IDENTIFIER task'))
+            raise Exception(task_data.get("message", "Failed to create CHARACTER_IDENTIFIER task"))
 
-        job.cloud_task_id = task_data['id']
-        job.save(update_fields=['cloud_blueprint_path', 'cloud_task_id', 'status'])
+        job.cloud_task_id = task_data["id"]
+        job.save(update_fields=["cloud_blueprint_path", "cloud_task_id", "status"])
 
         poll_cloud_task_status.delay(
             job_id=job_id,
-            cloud_task_id=task_data['id'],
-            on_complete_task_name='apps.workflow.inference.tasks.finalize_facts_task',
-            on_complete_kwargs={}
+            cloud_task_id=task_data["id"],
+            on_complete_task_name="apps.workflow.inference.tasks.finalize_facts_task",
+            on_complete_kwargs={},
         )
     except Exception as e:
         logger.error(f"[FactsTask] Job {job_id} 失败: {e}", exc_info=True)

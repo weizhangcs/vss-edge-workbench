@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workflow', '0006_annotationjob_l1_version_backup_file_and_more'),
+        ("workflow", "0006_annotationjob_l1_version_backup_file_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='annotationproject',
-            name='status',
-            field=models.CharField(choices=[('PENDING', '待处理'), ('PROCESSING', '处理中'), ('COMPLETED', '已完成'), ('FAILED', '失败')], default='PENDING', max_length=20, verbose_name='项目状态'),
+            model_name="annotationproject",
+            name="status",
+            field=models.CharField(
+                choices=[("PENDING", "待处理"), ("PROCESSING", "处理中"), ("COMPLETED", "已完成"), ("FAILED", "失败")],
+                default="PENDING",
+                max_length=20,
+                verbose_name="项目状态",
+            ),
         ),
     ]

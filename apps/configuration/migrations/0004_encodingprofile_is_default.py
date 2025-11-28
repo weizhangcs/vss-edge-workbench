@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('configuration', '0003_encodingprofile'),
+        ("configuration", "0003_encodingprofile"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='encodingprofile',
-            name='is_default',
-            field=models.BooleanField(default=False, help_text='勾选此项，在启动转码项目时将默认选中此配置。系统中只能有一个默认配置。', verbose_name='设为默认'),
+            model_name="encodingprofile",
+            name="is_default",
+            field=models.BooleanField(
+                default=False, help_text="勾选此项，在启动转码项目时将默认选中此配置。系统中只能有一个默认配置。", verbose_name="设为默认"
+            ),
         ),
     ]

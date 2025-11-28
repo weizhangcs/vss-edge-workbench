@@ -5,8 +5,8 @@ from django.http import HttpRequest
 
 # 1. 从你的两个 admin 文件中导入各自的 Tab 生成器
 from .annotation.admin import get_project_tabs
-from .inference.admin import get_inference_project_tabs
 from .creative.admin import get_creative_project_tabs
+from .inference.admin import get_inference_project_tabs
 
 
 def get_global_tabs(request: HttpRequest) -> list[dict]:

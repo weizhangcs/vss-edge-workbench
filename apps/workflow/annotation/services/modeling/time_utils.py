@@ -1,14 +1,17 @@
 # time_utils.py
 
+
 class TimeConverter:
     """
     一个处理时间格式转换的公共工具类。
     """
+
     @staticmethod
     def ass_time_to_seconds(time_str: str) -> float:
         """将Aegisub的时间格式 (H:MM:SS.ss) 转换为总秒数（浮点数）。"""
-        if not isinstance(time_str, str): return 0.0
-        parts = time_str.split(':')
+        if not isinstance(time_str, str):
+            return 0.0
+        parts = time_str.split(":")
         if len(parts) == 3:
             h, m, s = parts
             return int(h) * 3600 + int(m) * 60 + float(s)
@@ -31,4 +34,4 @@ class TimeConverter:
             return "00:00:00.000"
         m, s = divmod(seconds, 60)
         h, m = divmod(m, 60)
-        return f"{int(h):02d}:{int(m):02d}:{s:06.3f}"
+        return f"{int(h):02d}:{int(m):02d}:{s:06.3f}"  # noqa: E231

@@ -1,0 +1,27 @@
+# .pre-commit-config.yaml
+repos:
+  # 1. Black: 绝对的代码格式化权威 (负责缩进、引号、换行等)
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        language_version: python3.12
+        args: [--line-length=120]
+
+  # 2. Isort: 自动整理 import 顺序 (标准库 -> 第三方 -> 本地)
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        # "profile: black" 是关键，防止它和 black 冲突
+        args: ["--profile", "black", "--line-length=120"]
+
+  # 3. Flake8: 静态代码检查 (查语法错误、未使用的变量等)
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        # E203 和 W503 是为了兼容 black 而必须忽略的规则
+        # exclude: 忽略所有 app 下的 migrations 目录
+        args: ["--max-line-length=120", "--ignore=E203,W503"]
+        exclude: ^apps/.*/migrations/.*

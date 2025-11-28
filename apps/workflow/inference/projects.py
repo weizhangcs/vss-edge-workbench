@@ -2,11 +2,10 @@
 
 from django.db import models
 from model_utils import Choices
-from django_fsm import FSMField, transition
 
-from apps.workflow.common.baseProject import BaseProject
-from apps.workflow.common.baseJob import BaseJob
 from apps.workflow.annotation.projects import AnnotationProject
+from apps.workflow.common.baseJob import BaseJob
+from apps.workflow.common.baseProject import BaseProject
 
 
 def get_cloud_output_upload_path(instance, filename):
@@ -14,8 +13,8 @@ def get_cloud_output_upload_path(instance, filename):
     为 InferenceJob 产出物生成动态路径。
     """
     if instance.project and instance.project.annotation_project:
-        return f'inference/{instance.project.annotation_project.id}/jobs/{instance.id}_{filename}'
-    return f'inference/unknown/jobs/{instance.id}_{filename}'
+        return f"inference/{instance.project.annotation_project.id}/jobs/{instance.id}_{filename}"
+    return f"inference/unknown/jobs/{instance.id}_{filename}"
 
 
 class InferenceProject(BaseProject):
@@ -24,11 +23,9 @@ class InferenceProject(BaseProject):
     L3 云端推理项目。
     一个“容器”，严格一对一关联到“标注项目”。
     """
+
     annotation_project = models.OneToOneField(
-        AnnotationProject,
-        on_delete=models.CASCADE,
-        related_name='inference_project',
-        verbose_name="关联的标注项目"
+        AnnotationProject, on_delete=models.CASCADE, related_name="inference_project", verbose_name="关联的标注项目"
     )
 
     # [新增] 用于存储最新的 RAG 部署报告中的场景计数
@@ -51,23 +48,11 @@ class InferenceJob(BaseJob):
     (已移除所有自定义 transition，现在 100% 继承 BaseJob 的状态方法)
     """
 
-    TYPE = Choices(
-        ('FACTS', '角色属性识别'),
-        ('RAG_DEPLOYMENT', '知识图谱部署')
-    )
+    TYPE = Choices(("FACTS", "角色属性识别"), ("RAG_DEPLOYMENT", "知识图谱部署"))
 
-    project = models.ForeignKey(
-        InferenceProject,
-        on_delete=models.CASCADE,
-        related_name='jobs',
-        verbose_name="所属推理项目"
-    )
+    project = models.ForeignKey(InferenceProject, on_delete=models.CASCADE, related_name="jobs", verbose_name="所属推理项目")
 
-    job_type = models.CharField(
-        max_length=20,
-        choices=TYPE,
-        verbose_name="任务类型"
-    )
+    job_type = models.CharField(max_length=20, choices=TYPE, verbose_name="任务类型")
 
     # --- 输入 ---
     input_params = models.JSONField(blank=True, null=True, verbose_name="输入参数")
@@ -84,12 +69,10 @@ class InferenceJob(BaseJob):
 
     # --- 产出物 (由轮询任务填充) ---
     output_facts_file = models.FileField(
-        upload_to=get_cloud_output_upload_path,
-        blank=True, null=True, verbose_name="角色属性产出 (JSON)"
+        upload_to=get_cloud_output_upload_path, blank=True, null=True, verbose_name="角色属性产出 (JSON)"
     )
     output_rag_report_file = models.FileField(
-        upload_to=get_cloud_output_upload_path,
-        blank=True, null=True, verbose_name="RAG 部署报告 (JSON)"
+        upload_to=get_cloud_output_upload_path, blank=True, null=True, verbose_name="RAG 部署报告 (JSON)"
     )
 
     # [!!! 修复: 所有自定义 @transition 都已删除 !!!]
@@ -98,7 +81,7 @@ class InferenceJob(BaseJob):
     class Meta:
         verbose_name = "L3 推理子任务"
         verbose_name_plural = "L3 推理子任务"
-        ordering = ['-created']
+        ordering = ["-created"]
 
     def __str__(self):
         return f"{self.get_job_type_display()} (ID: {self.id})"

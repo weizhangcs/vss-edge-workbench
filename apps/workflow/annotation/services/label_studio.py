@@ -1,16 +1,16 @@
 # 文件路径: apps/workflow/services/label_studio.py
 
-import requests
-from typing import Tuple, Optional
 import logging
+from typing import Optional, Tuple
 
+import requests
 from decouple import config
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.urls import reverse
 
-from apps.workflow.models import AnnotationProject, TranscodingJob
 from apps.configuration.models import IntegrationSettings
+from apps.workflow.models import AnnotationProject, TranscodingJob
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,11 @@ class LabelStudioService:
             settings_obj = None
 
             # 内部 URL 保持从 .env 读取
-        #self.BASE_URL = config('LABEL_STUDIO_PUBLIC_URL', default='http://localhost:8081')
-        self.BASE_URL = config('LABEL_STUDIO_INTERNAL_URL', default='http://label-studio:8080')
+        # self.BASE_URL = config('LABEL_STUDIO_PUBLIC_URL', default='http://localhost:8081')
+        self.BASE_URL = config("LABEL_STUDIO_INTERNAL_URL", default="http://label-studio:8080")
 
         # [CRITICAL FIX] 从数据库模型中获取 Token，如果数据库未就绪，则为 None
-        self.ACCESS_TOKEN = getattr(settings_obj, 'label_studio_access_token', None)
+        self.ACCESS_TOKEN = getattr(settings_obj, "label_studio_access_token", None)
 
         if not self.ACCESS_TOKEN:
             # 如果 Token 缺失，发出警告，服务仍然可以初始化，但 API 调用会失败
@@ -50,20 +50,24 @@ class LabelStudioService:
         会智能判断使用 CDN 转码文件还是原始文件。
         """
         try:
-            asset = project.asset # 从 project 中获取 asset
-            admin_base_url = config('NUXT_PUBLIC_VSS_WORKBENCH_URL', default='http://localhost:8000').rstrip('/')
+            asset = project.asset  # 从 project 中获取 asset
+            admin_base_url = config("NUXT_PUBLIC_VSS_WORKBENCH_URL", default="http://localhost:8000").rstrip("/")
 
             # 2. 返回地址修正：返回到目标 AnnotationProject 的详情页 (change view)
             # 目标: /admin/workflow/annotationproject/<uuid>/change/
-            return_to_django_url = f"{admin_base_url}{reverse('admin:workflow_annotationproject_tab_l2', args=[project.pk])}"
+            return_to_django_url = (
+                f"{admin_base_url}{reverse('admin:workflow_annotationproject_tab_l2', args=[project.pk])}"
+            )
 
-            label_config_xml = render_to_string('ls_templates/video.xml')
-            expert_instruction_html = f"<h4>操作指南</h4><p>请根据视频内容完成标注。</p><p>完成后请返回Django后台：<a href='{return_to_django_url}'>点击这里</a></p>"
+            label_config_xml = render_to_string("ls_templates/video.xml")
+            expert_instruction_html = (
+                f"<h4>操作指南</h4><p>请根据视频内容完成标注。</p><p>完成后请返回Django后台：<a href='{return_to_django_url}'>点击这里</a></p>"
+            )
 
             project_payload = {
                 "title": f"{asset.title} - {project.name}",
                 "expert_instruction": expert_instruction_html,
-                "label_config": label_config_xml
+                "label_config": label_config_xml,
             }
 
             # [DEBUG 1] 打印发送前的关键信息 (检查 URL 和 Token 格式是否正确)
@@ -71,12 +75,11 @@ class LabelStudioService:
             url = f"{self.BASE_URL}/api/projects"
 
             auth_header = self.headers.get("Authorization", "")
-            logger.info(f"--- [LS DEBUG] 准备发送请求 ---")
+            logger.info("--- [LS DEBUG] 准备发送请求 ---")
             logger.info(f"URL: {url}")
             logger.info(f"Auth Header Length: {len(auth_header)}")
             logger.info(f"Auth Header Preview: {auth_header[:15]}...")
             project_response = requests.post(url, json=project_payload, headers=self.headers)
-            #project_response = requests.post(f"{self.BASE_URL}/api/projects", json=project_payload, headers=self.headers)
 
             # [DEBUG 2] 捕获并打印服务器返回的错误详情
             if project_response.status_code >= 400:
@@ -93,18 +96,23 @@ class LabelStudioService:
 
             task_mapping = {}
             for media_item in asset.medias.all():
-                if not media_item.source_video: continue
+                if not media_item.source_video:
+                    continue
 
                 # --- ↓↓↓ 核心查找逻辑 ↓↓↓ ---
                 video_url = None
                 # 检查项目是否设置了源编码配置
                 if project.source_encoding_profile:
                     # 查找与此媒体文件和编码配置匹配的、已完成的转码任务
-                    transcoding_job = TranscodingJob.objects.filter(
-                        media=media_item,
-                        profile=project.source_encoding_profile,
-                        status=TranscodingJob.STATUS.COMPLETED
-                    ).order_by('-modified').first() # 取最新的一个
+                    transcoding_job = (
+                        TranscodingJob.objects.filter(
+                            media=media_item,
+                            profile=project.source_encoding_profile,
+                            status=TranscodingJob.STATUS.COMPLETED,
+                        )
+                        .order_by("-modified")
+                        .first()
+                    )  # 取最新的一个
 
                     if transcoding_job and transcoding_job.output_url:
                         video_url = transcoding_job.output_url
@@ -117,10 +125,12 @@ class LabelStudioService:
                 # --- ↑↑↑ 查找逻辑结束 ↑↑↑ ---
 
                 task_payload = {"data": {"video_url": video_url}}
-                task_response = requests.post(f"{self.BASE_URL}/api/projects/{project_id}/tasks", json=task_payload, headers=self.headers)
+                task_response = requests.post(
+                    f"{self.BASE_URL}/api/projects/{project_id}/tasks", json=task_payload, headers=self.headers
+                )
 
                 if task_response.status_code == 201:
-                    task_id = task_response.json().get('id')
+                    task_id = task_response.json().get("id")
                     task_mapping[media_item.id] = task_id
                 else:
                     logger.error(f"为 Media '{media_item.title}' 创建 Task 失败: {task_response.text}")
