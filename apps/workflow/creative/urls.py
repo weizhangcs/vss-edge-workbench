@@ -13,6 +13,11 @@ urlpatterns = [
         creative_views.trigger_narration_view,
         name='creative_trigger_narration'
     ),
+    path(
+        'project/<uuid:project_id>/trigger-localize/',
+        creative_views.trigger_localize_view,
+        name='creative_trigger_localize'
+    ),
     # 对应 步骤 2
     path(
         'project/<uuid:project_id>/trigger-audio/',

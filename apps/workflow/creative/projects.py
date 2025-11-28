@@ -107,6 +107,13 @@ class CreativeProject(BaseProject):
         blank=True, null=True, verbose_name="解说词脚本 (JSON)"
     )
 
+    # --- [V1.2.1 新增] 本地化产出物 ---
+    localized_script_file = models.FileField(
+        upload_to=get_creative_output_upload_path,
+        blank=True, null=True,
+        verbose_name="本地化/翻译脚本 (JSON)"
+    )
+
     # [!!!] --- 核心修正 --- [!!!]
     # --- 步骤 2 产出物 ---
     dubbing_script_file = models.FileField(

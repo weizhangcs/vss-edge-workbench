@@ -155,51 +155,121 @@ class DubbingConfigurationForm(forms.Form):
     """
     步骤 2：配音生成配置表单 (Dubbing V2)
     """
-    TEMPLATE_CHOICES = [
-        ('chinese_paieas_replication', '标准解说音色 (推荐)'),
-        #('male_deep', '深沉男声'),
-        #('female_sweet', '甜美得力'),
+    # [新增] 脚本源选择
+    SOURCE_SCRIPT_CHOICES = [
+        ('master', '🎙️ 中文母本 (Narration Script)'),
+        ('localized', '🌍 本地化/译本 (Localized Script)'),
     ]
 
-    # 这里的 Style 可以留空，留空则继承 Narration
-    STYLE_CHOICES = [
-        ('', '--- 继承解说词风格 ---'),
-        ('humorous', '幽默搞笑'),
-        ('emotional', '深情治愈'),
-        ('suspense', '悬疑紧张'),
+    source_script_type = forms.ChoiceField(
+        label="配音脚本源",
+        choices=SOURCE_SCRIPT_CHOICES,
+        initial='master',
+        widget=UnfoldAdminSelectWidget,
+        help_text="选择要对哪个脚本进行配音。若选择译本，请确保已完成“多语言分发”步骤。"
+    )
+
+    # 策略模板选择
+    TEMPLATE_CHOICES = [
+        ('chinese_gemini_emotional', 'Google Gemini (情感/多语言/推荐)'),
+        ('chinese_paieas_replication', 'Aliyun CosyVoice (复刻/中文传统)'),
+    ]
+
+    # Google Gemini 人设
+    VOICE_CHOICES = [
+        ('Puck', 'Puck (幽默/男)'),
+        ('Charon', 'Charon (深沉/男)'),
+        ('Kore', 'Kore (冷静/女)'),
+        ('Fenrir', 'Fenrir (激动/男)'),
+        ('Aoede', 'Aoede (明快/女)'),
+    ]
+
+    # 标准语言代码
+    LANG_CHOICES = [
+        ('cmn-CN', '中文 (Mandarin)'),
+        ('en-US', '英语 (English US)'),
+        ('fr-FR', '法语 (French)'),
     ]
 
     template_name = forms.ChoiceField(
-        label="配音模板",
+        label="配音策略 (Template)",
         choices=TEMPLATE_CHOICES,
-        initial='chinese_paieas_replication',
+        initial='chinese_gemini_emotional',
         widget=UnfoldAdminSelectWidget,
-        required=True
+        help_text="Google 策略支持情感指令和多语言；Aliyun 策略主要用于中文声音克隆。"
     )
 
-    style = forms.ChoiceField(
-        label="强制风格 (可选)",
-        choices=STYLE_CHOICES,
+    # --- Google 策略专用参数 ---
+    voice_name = forms.ChoiceField(
+        label="人设 (Google Only)",
+        choices=VOICE_CHOICES,
+        initial='Puck',
         required=False,
         widget=UnfoldAdminSelectWidget,
-        help_text="如果不选，将自动使用步骤 1 中设定的风格。"
     )
 
-    speed = forms.FloatField(
-        label="语速",
+    language_code = forms.ChoiceField(
+        label="语言 (Google Only)",
+        choices=LANG_CHOICES,
+        initial='cmn-CN',
+        required=False,
+        widget=UnfoldAdminSelectWidget,
+    )
+
+    # --- 通用参数 ---
+    speed = forms.DecimalField(
+        label="语速 (Speed/Rate)",
         initial=1.0,
         min_value=0.5,
         max_value=2.0,
         step_size=0.1,
-        widget=UnfoldAdminIntegerFieldWidget,  # 复用 Integer Widget 样式
-        help_text="1.0 为标准语速，1.2 为快，0.8 为慢。"
+        widget=UnfoldAdminIntegerFieldWidget,
+        help_text="标准为 1.0。对应 Google 的 speaking_rate 或 Aliyun 的 speed。"
     )
 
-    instruct = forms.CharField(
-        label="高级指令 (Instruct)",
-        required=False,
-        widget=UnfoldAdminTextInputWidget,
-        help_text="高级用户专用，例如：'用极度夸张的语气说<|endofprompt|>'"
+    # 这里的 Style 可以留空，留空则继承 Narration
+    #STYLE_CHOICES = [
+    #    ('', '--- 继承解说词风格 ---'),
+    #    ('humorous', '幽默搞笑'),
+    #    ('emotional', '深情治愈'),
+    #    ('suspense', '悬疑紧张'),
+    #]
+
+class LocalizeConfigurationForm(forms.Form):
+    """
+    [V1.2.1 新增] 本地化任务配置表单
+    """
+    LANG_CHOICES = [
+        ('en', '英语 (English)'),
+        ('zh', '中文 (Chinese)'),
+        ('fr', '法语 (French)'),
+    ]
+
+    TOLERANCE_STRATEGIES = [
+        ('-0.15', '强制留白 (Strict -15%)'),
+        ('0.0', '严格对齐 (Standard)'),
+    ]
+
+    target_lang = forms.ChoiceField(
+        label="目标发行语言",
+        choices=LANG_CHOICES,
+        initial='en',
+        widget=UnfoldAdminSelectWidget
+    )
+
+    speaking_rate = forms.DecimalField(
+        label="目标语言语速标准",
+        initial=2.5,
+        widget=UnfoldAdminIntegerFieldWidget,
+        help_text="用于时长校验。建议：英文 2.5 (词/秒)，中文 4.2 (字/秒)。"
+    )
+
+    overflow_tolerance = forms.ChoiceField(
+        label="时长容忍度",
+        choices=TOLERANCE_STRATEGIES,
+        initial='-0.15',
+        widget=UnfoldAdminSelectWidget,
+        help_text="翻译后的文本往往比原文长，建议预留空隙。"
     )
 
 class BatchCreationForm(forms.Form):

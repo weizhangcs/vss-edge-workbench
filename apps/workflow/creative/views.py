@@ -6,8 +6,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 
 from .projects import CreativeProject
-from .tasks import start_narration_task, start_audio_task, start_edit_script_task, start_synthesis_task
-from .forms import NarrationConfigurationForm, DubbingConfigurationForm
+from .tasks import start_narration_task, start_audio_task, start_edit_script_task, start_synthesis_task,start_localize_task
+from .forms import NarrationConfigurationForm, DubbingConfigurationForm, LocalizeConfigurationForm
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,29 @@ def trigger_narration_view(request, project_id):
 
     return redirect(reverse('admin:workflow_creativeproject_tab_1_narration', args=[project_id]))
 
+
+def trigger_localize_view(request, project_id):
+    """
+    [新增] 步骤 1.5：触发“本地化”任务
+    """
+    project = get_object_or_404(CreativeProject, id=project_id)
+
+    if request.method == 'POST':
+        form = LocalizeConfigurationForm(request.POST)
+
+        # 校验：必须有母本文件
+        if not project.narration_script_file:
+            messages.error(request, "未找到母本解说词，无法本地化。")
+            return redirect(reverse('admin:workflow_creativeproject_tab_1_5_localize', args=[project_id]))
+
+        if form.is_valid():
+            config = form.cleaned_data
+            start_localize_task.delay(project_id=str(project.id), config=config)
+            messages.success(request, f"已启动本地化任务 (目标: {config.get('target_lang')})。")
+        else:
+            messages.error(request, f"参数错误: {form.errors.as_text()}")
+
+    return redirect(reverse('admin:workflow_creativeproject_tab_1_5_localize', args=[project_id]))
 
 def trigger_audio_view(request, project_id):
     """

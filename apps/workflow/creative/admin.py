@@ -10,7 +10,8 @@ from django.shortcuts import redirect, render
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
-from .forms import CreativeProjectForm, NarrationConfigurationForm, DubbingConfigurationForm # 导入新表单
+from .forms import CreativeProjectForm, NarrationConfigurationForm, DubbingConfigurationForm, \
+    LocalizeConfigurationForm  # 导入新表单
 from .projects import CreativeProject, CreativeBatch
 from .jobs import CreativeJob
 
@@ -49,6 +50,11 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
                     "admin:workflow_creativeproject_tab_1_narration",
                     default_change_view_name
                 ]
+            },
+            {
+                "title": "步骤 1.5：多语言分发",  # [新增 Tab]
+                "link": reverse("admin:workflow_creativeproject_tab_1_5_localize", args=[object_id]),
+                "active": current_view_name == "admin:workflow_creativeproject_tab_1_5_localize"
             },
             {
                 "title": "步骤 2：配音推理",
@@ -93,7 +99,11 @@ class CreativeProjectAdmin(ModelAdmin):
     tab_1_fieldsets = base_fieldsets + (
         ('步骤 1 产出物', {'fields': ('narration_script_file',)}),
     )
-    # [!!!] --- 核心修正 --- [!!!]
+    # [新增] Fieldset 用于本地化 Tab
+    tab_1_5_fieldsets = (
+        (None, {'fields': ('name', 'status', 'asset')}),
+        ('本地化产出物', {'fields': ('localized_script_file',)}),
+    )
     tab_2_fieldsets = base_fieldsets + (
         ('步骤 2 产出物', {'fields': ('dubbing_script_file',)}),  # <--- 字段重命名
     )
@@ -132,6 +142,10 @@ class CreativeProjectAdmin(ModelAdmin):
         custom_urls = [
             path('<uuid:object_id>/change/tab-1-narration/', self.admin_site.admin_view(self.tab_1_narration_view),
                  name=get_url_name('tab_1_narration')),
+            # [新增] Tab 1.5 路由
+            path('<uuid:object_id>/change/tab-1-5-localize/',
+                 self.admin_site.admin_view(self.tab_1_5_localize_view),
+                 name=f"{self.model._meta.app_label}_{self.model._meta.model_name}_tab_1_5_localize"),
             path('<uuid:object_id>/change/tab-2-audio/', self.admin_site.admin_view(self.tab_2_audio_view),
                  name=get_url_name('tab_2_audio')),
             path('<uuid:object_id>/change/tab-3-edit/', self.admin_site.admin_view(self.tab_3_edit_view),
@@ -165,6 +179,32 @@ class CreativeProjectAdmin(ModelAdmin):
         context['help_text'] = "请配置解说词的叙事方向和风格。"
         context['configuration_form'] = form  # [关键] 将表单注入上下文
 
+        self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
+        return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
+
+    # --- [新增] Tab 1.5 渲染视图 ---
+    def tab_1_5_localize_view(self, request, object_id, extra_context=None):
+        context = extra_context or {}
+        project = self.get_object(request, object_id)
+
+        form = LocalizeConfigurationForm()
+
+        form_url = reverse('workflow:creative_trigger_localize', args=[project.pk])
+
+        context['trigger_text'] = "▶️ 启动本地化翻译 (步骤 1.5)"
+        # 只有当母本解说词完成后，才能进行本地化
+        context['trigger_disabled'] = not (project.status in [CreativeProject.STATUS.NARRATION_COMPLETED,
+                                                              CreativeProject.STATUS.AUDIO_COMPLETED,
+                                                              CreativeProject.STATUS.EDIT_COMPLETED,
+                                                              CreativeProject.STATUS.COMPLETED])
+
+        if not project.narration_script_file:
+            context['trigger_disabled'] = True
+            context['help_text'] = "请先完成步骤 1 生成中文母本。"
+        else:
+            context['help_text'] = "基于中文母本，生成目标语言的发行脚本。"
+
+        context['configuration_form'] = form
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
@@ -224,6 +264,8 @@ class CreativeProjectAdmin(ModelAdmin):
             # 它不是 "Save"，而是我们的自定义按钮
             if 'tab-1-narration' in request.path:
                 return redirect('workflow:creative_trigger_narration', project_id=object_id)
+            if 'tab-1-5-localize' in request.path:
+                return redirect('workflow:creative_trigger_localize', project_id=object_id)
             if 'tab-2-audio' in request.path:
                 return redirect('workflow:creative_trigger_audio', project_id=object_id)
             if 'tab-3-edit' in request.path:

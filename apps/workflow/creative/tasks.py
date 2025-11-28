@@ -267,40 +267,180 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
 
 
 # ==============================================================================
+# 2. 本地化 (Localize Narration - V1.2.1 新增)
+# ==============================================================================
+
+@shared_task(name="apps.workflow.creative.tasks.start_localize_task")
+def start_localize_task(project_id: str, config: dict = None, **kwargs):
+    """
+    (V1.2.1 新增) 启动解说词本地化任务。
+    """
+    job = None
+    project = None
+
+    if not config: config = {}
+    if config:
+        for k, v in config.items():
+            if isinstance(v, Decimal): config[k] = float(v)
+
+    try:
+        project = CreativeProject.objects.get(id=project_id)
+        inference_project = project.inference_project
+
+        # 必须有中文母本
+        if not project.narration_script_file:
+            raise ValueError("未找到母本解说词 (Narration Script)")
+
+        # 准备蓝图路径 (逻辑同 Narration 任务)
+        service = CloudApiService()
+        local_bp = inference_project.annotation_project.final_blueprint_file
+        blueprint_path = None
+
+        # 简化的蓝图获取逻辑
+        if local_bp and local_bp.path and Path(local_bp.path).exists():
+            success, path = service.upload_file(Path(local_bp.path))
+            if success: blueprint_path = path
+
+        if not blueprint_path:
+            # 尝试从之前的 Job 找
+            prev_job = inference_project.jobs.filter(cloud_blueprint_path__isnull=False).last()
+            if prev_job: blueprint_path = prev_job.cloud_blueprint_path
+
+        if not blueprint_path:
+            raise ValueError("无法获取蓝图路径")
+
+        # 上传母本文件
+        success, master_script_path = service.upload_file(Path(project.narration_script_file.path))
+        if not success:
+            raise Exception("上传母本文件失败")
+
+        # 创建任务记录
+        job = CreativeJob.objects.create(
+            project=project,
+            job_type=CreativeJob.TYPE.LOCALIZE_NARRATION,
+            status=BaseJob.STATUS.PENDING,
+            input_params=config
+        )
+        job.start()
+        job.save()
+
+        # 构造 Payload
+        payload = {
+            "master_script_path": master_script_path,
+            "blueprint_path": blueprint_path,
+            "service_params": {
+                "lang": "zh",  # 母本语言
+                "target_lang": config.get('target_lang', 'en'),
+                "model": "gemini-2.5-pro",
+                "speaking_rate": float(config.get('speaking_rate', 2.5)),
+                "overflow_tolerance": float(config.get('overflow_tolerance', -0.15))
+            }
+        }
+
+        # [新增] 打印 Payload 预览，方便调试
+        logger.info(f"[LocalizeTask] Payload Preview:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+
+        # 发送请求
+        success, task_data = service.create_task("LOCALIZE_NARRATION", payload)
+        if not success:
+            raise Exception(task_data.get('message', 'Failed to create LOCALIZE task'))
+
+        job.cloud_task_id = task_data['id']
+        job.save()
+
+        poll_cloud_task_status.delay(
+            job_id=job.id,
+            cloud_task_id=task_data['id'],
+            on_complete_task_name='apps.workflow.creative.tasks.finalize_localize_task',
+            on_complete_kwargs={}
+        )
+
+    except Exception as e:
+        logger.error(f"[LocalizeTask] 启动失败: {e}", exc_info=True)
+        if job: job.fail(); job.save()
+
+
+@shared_task(name="apps.workflow.creative.tasks.finalize_localize_task")
+def finalize_localize_task(job_id: str, cloud_task_data: dict, **kwargs):
+    """
+    (V1.2.1 新增) 本地化任务回调
+    """
+    try:
+        job = CreativeJob.objects.get(id=job_id)
+        project = job.project
+        service = CloudApiService()
+
+        download_url = cloud_task_data.get("download_url")
+        if not download_url:
+            raise Exception("未返回下载链接")
+
+        success, content = service.download_task_result(download_url)
+        if success:
+            # 保存到 localized_script_file
+            fname = f"localized_script_{job.input_params.get('target_lang', 'xx')}_{job.id}.json"
+            project.localized_script_file.save(fname, ContentFile(content), save=False)
+            project.save()
+            job.complete()
+            job.save()
+            logger.info(f"[LocalizeFinal] 本地化完成: {fname}")
+        else:
+            raise Exception("下载结果失败")
+
+    except Exception as e:
+        logger.error(f"[LocalizeFinal] 失败: {e}", exc_info=True)
+        if job: job.fail(); job.save()
+
+
+# ==============================================================================
 # 2. 生成配音 (Dubbing V2) - 完整实现
+# ==============================================================================
+
+# ==============================================================================
+# 3. 生成配音 (Dubbing V2 - 适配版)
 # ==============================================================================
 
 @shared_task(name="apps.workflow.creative.tasks.start_audio_task")
 def start_audio_task(project_id: str, config: dict = None, **kwargs):
     """
-    (V2 升级版)
-    由 Admin 视图触发，开始“步骤 2：生成配音”。
-    支持通过 config 参数传递 Dubbing V2 接口所需的模版、语速等控参。
+    (V2 适配版)
+    支持 Google/Aliyun 双策略，并根据输入文件源自动判断。
+    默认使用 narration_script_file，如果想配音本地化脚本，需在 kwargs 中指定 source_file。
     """
     job = None
     project = None
 
-    # 1. 默认配置
-    if not config:
-        config = {
-            "template_name": "chinese_paieas_replication",
-            "speed": 1.0,
-            "style": ""  # 默认为空，继承 Narration 风格
-        }
+    if not config: config = {}
+
+    # 清洗 Decimal
+    for k, v in config.items():
+        if isinstance(v, Decimal): config[k] = float(v)
 
     try:
-        # 2. 获取项目并检查状态
         project = CreativeProject.objects.get(id=project_id)
 
-        if project.status != CreativeProject.STATUS.NARRATION_COMPLETED:
-            logger.warning(f"[AudioTask] 项目状态不是 NARRATION_COMPLETED，任务中止。")
-            return
+        # 1. 确定输入脚本 (支持配音母本或配音发行本)
+        # --- [逻辑更新] 根据 config 选择输入文件 ---
+        source_type = config.get('source_script_type', 'master')
+        source_file = None
 
-        # 必须有解说词文件才能配音
-        if not project.narration_script_file:
-            raise ValueError("找不到已完成的 narration_script_file")
+        if source_type == 'localized':
+            source_file = project.localized_script_file
+            if not source_file:
+                raise ValueError("选择了‘本地化译本’作为配音源，但尚未找到本地化产出文件。请先执行步骤 1.5。")
+            logger.info(f"[AudioTask] 使用本地化译本: {source_file.name}")
+        else:
+            source_file = project.narration_script_file
+            if not source_file:
+                raise ValueError("未找到中文母本解说词文件。")
+            logger.info(f"[AudioTask] 使用中文母本: {source_file.name}")
 
-        # 3. 创建 Job 记录
+        # 2. 上传脚本
+        service = CloudApiService()
+        success, script_path = service.upload_file(Path(source_file.path))
+        if not success:
+            raise Exception("上传配音脚本失败")
+
+        # 3. 创建 Job
         job = CreativeJob.objects.create(
             project=project,
             job_type=CreativeJob.TYPE.GENERATE_AUDIO,
@@ -309,72 +449,41 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
         )
         job.start()
         job.save()
-
         project.status = CreativeProject.STATUS.AUDIO_RUNNING
         project.save()
 
-    except Exception as e:
-        logger.error(f"[AudioTask] 无法启动配音任务 (Project: {project_id}): {e}", exc_info=True)
-        if job:
-            job.fail()
-            job.save()
-        if project:
-            project.status = CreativeProject.STATUS.FAILED
-            project.save()
-        return
-
-    # 4. 上传解说词并调用 API
-    try:
-        service = CloudApiService()
-
-        # 4.1 上传解说词脚本 (Narration Output -> Dubbing Input)
-        # 即使上一步是从云端下载下来的，为了稳健性，我们重新上传本地这份最新的文件
-        local_script_path = Path(project.narration_script_file.path)
-        success, narration_path = service.upload_file(local_script_path)
-
-        if not success:
-            raise Exception(f"上传 narration_script_file 失败: {narration_path}")
-
-        logger.info(f"[AudioTask] 解说词已上传至: {narration_path}")
-
-        # 4.2 构造 V2 Service Params
+        # 4. 构造 Payload (核心逻辑)
+        template_name = config.get('template_name', 'chinese_gemini_emotional')
         service_params = {
-            "template_name": config.get('template_name', 'chinese_paieas_replication'),
-            "speed": float(config.get('speed', 1.0))
+            "template_name": template_name
         }
 
-        # 可选参数：如果用户选择了特定的 style，则传递；否则留空以继承
-        user_style = config.get('style')
-        if user_style:
-            service_params['style'] = user_style
+        # 策略分支
+        if 'gemini' in template_name:
+            # Google 策略参数
+            service_params['voice_name'] = config.get('voice_name', 'Puck')
+            service_params['language_code'] = config.get('language_code', 'cmn-CN')
+            service_params['speaking_rate'] = float(config.get('speed', 1.0))  # 映射 speed -> speaking_rate
+            service_params['model_name'] = "gemini-2.5-pro-tts"  # 固定或从 config 读
+        else:
+            # Aliyun 策略参数
+            service_params['speed'] = float(config.get('speed', 1.0))
 
-        # 可选参数：高级指令
-        user_instruct = config.get('instruct')
-        if user_instruct:
-            service_params['instruct'] = user_instruct
-
-        # 4.3 构造完整 Payload
-        cloud_output_path = f"outputs/dubbing/{project.id}/{job.id}_audio_meta.json"
-
+        # Payload
         payload = {
-            "input_narration_path": narration_path,
-            #"output_path": cloud_output_path,
+            "input_narration_path": script_path,  # [V2 新键名]
             "service_params": service_params
         }
 
-        # 4.4 创建云端任务
+        logger.info(f"[AudioTask] Payload: {json.dumps(payload, ensure_ascii=False)}")
+
         success, task_data = service.create_task("GENERATE_DUBBING", payload)
         if not success:
-            raise Exception(task_data.get('message', 'Failed to create GENERATE_DUBBING task'))
+            raise Exception(task_data.get('message', 'Failed to create DUBBING task'))
 
         job.cloud_task_id = task_data['id']
-        # 记录一些调试信息
-        job.input_params['uploaded_narration_path'] = narration_path
         job.save()
 
-        logger.info(f"[AudioTask] 成功提交配音任务 TaskID: {job.cloud_task_id}")
-
-        # 5. 触发轮询
         poll_cloud_task_status.delay(
             job_id=job.id,
             cloud_task_id=task_data['id'],
@@ -383,11 +492,9 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
         )
 
     except Exception as e:
-        logger.error(f"[AudioTask] API 调用失败 (Job: {job.id}): {e}", exc_info=True)
-        job.fail()
-        job.save()
-        project.status = CreativeProject.STATUS.FAILED
-        project.save()
+        logger.error(f"[AudioTask] 启动失败: {e}", exc_info=True)
+        if job: job.fail(); job.save()
+        if project: project.status = CreativeProject.STATUS.FAILED; project.save()
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_audio_task")
