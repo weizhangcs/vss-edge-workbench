@@ -1,6 +1,7 @@
 # 文件路径: apps/workflow/creative/jobs.py
 
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from model_utils import Choices
 
 from apps.workflow.common.baseJob import BaseJob
@@ -10,32 +11,55 @@ from .projects import CreativeProject
 
 class CreativeJob(BaseJob):
     """
-    (新 V2)
-    L4 创作子任务。
-    对应您计划中的三个独立云端 API 调用。
+    [Model] 创作子任务 (Creative Job)
+
+    代表创作工作流中的一个原子操作步骤。
+    通常对应一次异步的云端 API 调用或本地的合成任务。
     """
 
+    # --- 1. Choices Definition ---
     TYPE = Choices(
-        ("GENERATE_NARRATION", "生成解说词"),  # 您的步骤 1
-        ("LOCALIZE_NARRATION", "本地化/翻译"),
-        ("GENERATE_AUDIO", "生成配音"),  # 您的步骤 2
-        ("GENERATE_EDIT_SCRIPT", "生成剪辑脚本"),  # 您的步骤 3
-        ("SYNTHESIS", "视频合成"),
+        ("GENERATE_NARRATION", _("生成解说词")),
+        ("LOCALIZE_NARRATION", _("本地化/翻译")),
+        ("GENERATE_AUDIO", _("生成配音")),
+        ("GENERATE_EDIT_SCRIPT", _("生成剪辑脚本")),
+        ("SYNTHESIS", _("视频合成")),
     )
 
-    project = models.ForeignKey(CreativeProject, on_delete=models.CASCADE, related_name="jobs", verbose_name="所属创作项目")
+    # --- 2. Relationships ---
+    project = models.ForeignKey(
+        CreativeProject,
+        on_delete=models.CASCADE,
+        related_name="jobs",
+        verbose_name=_("所属创作项目"),
+    )
 
-    job_type = models.CharField(max_length=30, choices=TYPE, verbose_name="任务类型")
+    # --- 3. Job Attributes ---
+    job_type = models.CharField(
+        max_length=30,
+        choices=TYPE,
+        verbose_name=_("任务类型"),
+    )
 
-    # --- 输入 ---
-    input_params = models.JSONField(blank=True, null=True, verbose_name="输入参数")
+    # --- 4. Inputs & Metadata ---
+    input_params = models.JSONField(
+        blank=True,
+        null=True,
+        verbose_name=_("输入参数"),
+    )
 
-    # --- 外部跟踪 ---
-    cloud_task_id = models.CharField(max_length=255, blank=True, null=True, verbose_name="云端任务 ID")
+    # --- 5. External Tracking ---
+    cloud_task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name=_("云端任务 ID"),
+    )
 
-    # (产出物存储在父级 Project 上)
+    # Note: 具体的产出物文件 (Artifacts) 通常存储在父级 Project 模型上，
+    # Job 模型主要负责追踪执行过程和状态。
 
     class Meta:
-        verbose_name = "L4 创作子任务"
-        verbose_name_plural = "L4 创作子任务"
+        verbose_name = _("创作子任务")
+        verbose_name_plural = _("创作子任务")
         ordering = ["-created"]

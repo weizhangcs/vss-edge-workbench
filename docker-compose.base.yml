@@ -3,7 +3,7 @@
 
 services:
   db:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/postgres:16
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_base/postgres:16
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     restart: unless-stopped
@@ -19,7 +19,7 @@ services:
       - TZ=Asia/Shanghai
 
   redis:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/redis:7-alpine
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_base/redis:7-alpine
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
@@ -61,7 +61,7 @@ services:
       - TZ=Asia/Shanghai
 
   nginx_media_server:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/nginx:1.25-alpine
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_base/nginx:1.25-alpine
     ports:
       - "9999:80"
     volumes:
@@ -80,7 +80,7 @@ services:
       - TZ=Asia/Shanghai
 
   label-studio:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/label-studio:latest
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_base/label-studio:latest
     ports:
       - "8081:8080"
     volumes:

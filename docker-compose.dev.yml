@@ -7,7 +7,6 @@ services:
       - "5432:5432"
 
   web:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:dev
     build:
       context: .
     volumes:
@@ -15,13 +14,11 @@ services:
       - .:/app
 
   celery_worker:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:dev
     build:
       context: .
     volumes:
       - .:/app
 
   subeditor:
-     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:dev
      build:
        context: ..\..\WebstormProjects\vss-sub-editor
