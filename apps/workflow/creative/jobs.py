@@ -60,6 +60,6 @@ class CreativeJob(BaseJob):
     # Job 模型主要负责追踪执行过程和状态。
 
     class Meta:
-        verbose_name = _("创作子任务")
-        verbose_name_plural = _("创作子任务")
+        verbose_name = _("子任务状态列表")
+        verbose_name_plural = _("子任务状态列表")
         ordering = ["-created"]

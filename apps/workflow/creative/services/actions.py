@@ -145,68 +145,77 @@ class CreativeTaskAction:
     def download_assets_from_dubbing_script(self, job_id: str):
         """
         [核心补充] 解析配音脚本，下载所有关联的音频文件到本地，并回写本地路径。
-        这是实现“云端配音 -> 本地合成”闭环的关键步骤。
+        增加完整性校验：必须下载所有文件且文件非空。
         """
         job = CreativeJob.objects.get(id=job_id)
 
-        # 1. 读取刚刚下载的 dubbing_script.json
+        # 1. 读取 dubbing_script.json
         if not self.project.dubbing_script_file:
             raise ValueError("Dubbing script file missing on project.")
 
-        # 重新打开文件读取内容
         self.project.dubbing_script_file.open("r")
         try:
             script_data = json.load(self.project.dubbing_script_file)
         except Exception as e:
             logger.error(f"Failed to parse dubbing script JSON: {e}")
-            return
+            raise  # 解析失败直接抛出
         finally:
             self.project.dubbing_script_file.close()
 
         dubbing_list = script_data.get("dubbing_script", [])
-        if not dubbing_list:
+        expected_count = len(dubbing_list)  # [新增] 预期数量
+
+        if expected_count == 0:
             logger.warning("Dubbing script list is empty.")
             return
 
         # 2. 准备本地存储目录
-        # 结构: media_root/creative/{project_id}/outputs/audio_{job_id}/
         relative_dir = f"creative/{self.project.id}/outputs/audio_{job.id}"
         abs_dir = Path(settings.MEDIA_ROOT) / relative_dir
         abs_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"开始下载 {len(dubbing_list)} 个音频文件到本地目录: {abs_dir}")
+        logger.info(f"开始下载 {expected_count} 个音频文件到本地目录: {abs_dir}")
 
         updated_count = 0
+        failed_files = []  # [新增] 记录失败文件
+
         for item in dubbing_list:
-            cloud_path = item.get("audio_file_path")  # e.g. "tmp/xxxx.mp3"
+            cloud_path = item.get("audio_file_path")
             if not cloud_path:
                 continue
 
-            # 3. 调用 Cloud API 通用下载接口
-            # 注意：确保 CloudApiService 已实现 download_general_file
+            # 3. 下载
             success, content = self.cloud_service.download_general_file(cloud_path)
 
-            if success:
+            # [新增] 校验：下载成功 且 内容非空
+            if success and content and len(content) > 0:
                 filename = os.path.basename(cloud_path)
                 save_path = abs_dir / filename
 
                 with open(save_path, "wb") as f:
                     f.write(content)
 
-                # 4. [关键] 回写本地相对路径 (供 SynthesisService 使用)
+                # 4. 回写本地相对路径
                 item["local_audio_path"] = f"{relative_dir}/{filename}"
                 updated_count += 1
             else:
-                logger.error(f"音频下载失败: {cloud_path}")
-                item["error"] = "Download failed"
+                logger.error(f"音频下载异常: {cloud_path} (Success={success}, Size={len(content) if content else 0})")
+                item["error"] = "Download failed or empty file"
+                failed_files.append(cloud_path)
 
-        # 5. 保存更新后的 JSON (包含 local_audio_path)
-        if updated_count > 0:
-            new_content = json.dumps(script_data, indent=2, ensure_ascii=False)
+        # 5. 保存更新后的 JSON
+        # 即使失败也要保存，以便查看 error 字段
+        new_content = json.dumps(script_data, indent=2, ensure_ascii=False)
+        original_name = os.path.basename(self.project.dubbing_script_file.name)
+        self.project.dubbing_script_file.save(original_name, ContentFile(new_content.encode("utf-8")), save=False)
+        self.project.save()
 
-            # 使用 save 覆盖原文件
-            # 获取原文件名
-            original_name = os.path.basename(self.project.dubbing_script_file.name)
-            self.project.dubbing_script_file.save(original_name, ContentFile(new_content.encode("utf-8")), save=False)
-            self.project.save()
-            logger.info(f"配音脚本已更新，成功下载并关联了 {updated_count} 个音频文件。")
+        # [新增] 6. 最终完整性断言
+        if updated_count != expected_count:
+            error_msg = (
+                f"配音资产完整性校验失败！" f"预期: {expected_count}, 实际: {updated_count}. " f"失败文件: {', '.join(failed_files)}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)  # 抛出异常，这将导致 Job 状态变为 ERROR
+
+        logger.info(f"配音脚本已更新，成功下载并校验了所有 {updated_count} 个音频文件。")

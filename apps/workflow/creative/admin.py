@@ -1,5 +1,4 @@
 # 文件路径: apps/workflow/creative/admin.py
-
 import logging
 
 from django.contrib import admin, messages
@@ -79,11 +78,22 @@ class CreativeJobInline(TabularInline):
     model = CreativeJob
     extra = 0
     can_delete = False
-    list_display = ("job_type", "status", "cloud_task_id", "created", "modified")
-    readonly_fields = list_display + ("input_params",)
+
+    # [新增配置] 隐藏 Unfold 自动生成的行标题
+    hide_title = True
+
+    # [修改 1] 使用自定义方法 'display_id' 代替直接使用 'id'
+    # 同时恢复 input_params 为直接显示
+    fields = ("display_id", "job_type", "status", "cloud_task_id", "created", "modified", "input_params")
+    readonly_fields = fields
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    # [修改 2] 定义一个显示 ID 的方法
+    @admin.display(description="ID")
+    def display_id(self, obj):
+        return obj.id
 
 
 @admin.register(CreativeProject)
@@ -94,19 +104,51 @@ class CreativeProjectAdmin(ModelAdmin):
     search_fields = ("name", "inference_project__name", "asset__title")
     autocomplete_fields = ["inference_project"]
 
-    base_fieldsets = ((None, {"fields": ("name", "description", "status", "inference_project", "asset")}),)
-    tab_1_fieldsets = base_fieldsets + (("步骤 1 产出物", {"fields": ("narration_script_file",)}),)
-    # [新增] Fieldset 用于本地化 Tab
-    tab_1_5_fieldsets = (
-        (None, {"fields": ("name", "status", "asset")}),
-        ("本地化产出物", {"fields": ("localized_script_file",)}),
+    # 1. 定义公共头部 (Base Layout)
+    base_fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    ("name", "status"),  # 第一行
+                    ("asset", "inference_project"),  # 第二行
+                    "description",  # 第三行 (通栏)
+                )
+            },
+        ),
     )
-    tab_2_fieldsets = base_fieldsets + (("步骤 2 产出物", {"fields": ("dubbing_script_file",)}),)  # <--- 字段重命名
+
+    # 2. 定义各个 Tab 的 Fieldsets
+    # 逻辑：公共头部 + 该步骤特有的 Fieldset
+
+    # 步骤 1
+    tab_1_fieldsets = base_fieldsets + (("步骤 1 产出物", {"fields": ("narration_script_file",)}),)
+
+    # 步骤 1.5 (本地化) - [修正后]
+    tab_1_5_fieldsets = base_fieldsets + (
+        (
+            "双语脚本下载与核对",
+            {
+                "fields": (
+                    "narration_script_file",  # 中文母本
+                    "localized_script_file",  # 英文译本
+                ),
+                "description": "请下载上方两个文件进行人工比对。如果进行了修改，请重新上传覆盖，再进行下一步。",
+            },
+        ),
+    )
+
+    # 步骤 2
+    tab_2_fieldsets = base_fieldsets + (("步骤 2 产出物", {"fields": ("dubbing_script_file",)}),)
+
+    # 步骤 3
     tab_3_fieldsets = base_fieldsets + (("步骤 3 产出物", {"fields": ("edit_script_file",)}),)
+
+    # 步骤 4
     tab_4_fieldsets = base_fieldsets + (("步骤 4 产出物", {"fields": ("final_video_file",)}),)
 
-    # [!!! 核心修正] 确保新的状态字段被添加
-    readonly_fields = ("asset", "status")  # [新增]
+    # 3. 只读字段
+    readonly_fields = ("asset", "status")
 
     inlines = [CreativeJobInline]
 
@@ -114,6 +156,9 @@ class CreativeProjectAdmin(ModelAdmin):
         if obj is None:
             return ((None, {"fields": ("name", "description", "inference_project")}),)
         view_name = request.resolver_match.view_name
+
+        if view_name == "admin:workflow_creativeproject_tab_1_5_localize":
+            return self.tab_1_5_fieldsets
         if view_name == "admin:workflow_creativeproject_tab_2_audio":
             return self.tab_2_fieldsets
         if view_name == "admin:workflow_creativeproject_tab_3_edit":
@@ -180,7 +225,7 @@ class CreativeProjectAdmin(ModelAdmin):
         form_url = reverse("workflow:creative_trigger_narration", args=[project.pk])
 
         context["trigger_text"] = "▶️ 生成解说词 (步骤 1)"
-        context["trigger_disabled"] = project.status != CreativeProject.STATUS.PENDING
+        context["trigger_disabled"] = project.status == CreativeProject.STATUS.NARRATION_RUNNING
         context["help_text"] = "请配置解说词的叙事方向和风格。"
         context["configuration_form"] = form  # [关键] 将表单注入上下文
 
@@ -197,15 +242,9 @@ class CreativeProjectAdmin(ModelAdmin):
         form_url = reverse("workflow:creative_trigger_localize", args=[project.pk])
 
         context["trigger_text"] = "▶️ 启动本地化翻译 (步骤 1.5)"
-        # 只有当母本解说词完成后，才能进行本地化
-        context["trigger_disabled"] = not (
-            project.status
-            in [
-                CreativeProject.STATUS.NARRATION_COMPLETED,
-                CreativeProject.STATUS.AUDIO_COMPLETED,
-                CreativeProject.STATUS.EDIT_COMPLETED,
-                CreativeProject.STATUS.COMPLETED,
-            ]
+        # 只有当母本解说词完成后，才能进行本地化 正在运行 OR 缺少母本文件 TODO:进一步检查
+        context["trigger_disabled"] = project.status == CreativeProject.STATUS.LOCALIZATION_RUNNING or not bool(
+            project.narration_script_file
         )
 
         if not project.narration_script_file:
@@ -227,7 +266,11 @@ class CreativeProjectAdmin(ModelAdmin):
         form_url = reverse("workflow:creative_trigger_audio", args=[project.pk])
 
         context["trigger_text"] = "▶️ 生成配音 (步骤 2)"
-        context["trigger_disabled"] = project.status != CreativeProject.STATUS.NARRATION_COMPLETED
+        # [UI 修复] 禁用条件：正在运行 OR 缺少母本文件
+        # (注：即使 failed 状态，只要文件在，也允许重试)
+        context["trigger_disabled"] = project.status == CreativeProject.STATUS.AUDIO_RUNNING or not bool(
+            project.narration_script_file
+        )
         context["help_text"] = "配置配音的音色和语速。风格默认继承自解说词。"
         context["configuration_form"] = form  # [关键] 将表单注入上下文
 
@@ -242,7 +285,10 @@ class CreativeProjectAdmin(ModelAdmin):
         # form_url = reverse('admin:workflow_creativeproject_tab_3_edit', args=[project.pk])
 
         context["trigger_text"] = "▶️ 生成剪辑脚本 (步骤 3)"
-        context["trigger_disabled"] = project.status != CreativeProject.STATUS.AUDIO_COMPLETED
+        # [UI 修复] 禁用条件：正在运行 OR 缺少配音脚本
+        context["trigger_disabled"] = project.status == CreativeProject.STATUS.EDIT_RUNNING or not bool(
+            project.dubbing_script_file
+        )
         context["help_text"] = "当配音生成后，点击此按钮生成剪辑脚本。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
@@ -255,7 +301,10 @@ class CreativeProjectAdmin(ModelAdmin):
         form_url = reverse("workflow:creative_trigger_synthesis", args=[project.pk])
 
         context["trigger_text"] = "▶️ 开始视频合成 (步骤 4)"
-        context["trigger_disabled"] = project.status != CreativeProject.STATUS.EDIT_COMPLETED
+        # [UI 修复] 禁用条件：正在运行 OR 缺少剪辑脚本
+        context["trigger_disabled"] = project.status == CreativeProject.STATUS.SYNTHESIS_RUNNING or not bool(
+            project.edit_script_file
+        )
         context["help_text"] = "当剪辑脚本生成后，点击此按钮调用本地 FFmpeg 进程完成音视频合成。"
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"

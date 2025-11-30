@@ -245,9 +245,7 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
             action.update_project_status(CreativeProject.STATUS.FAILED)
 
 
-shared_task(name="apps.workflow.creative.tasks.finalize_audio_task")
-
-
+@shared_task(name="apps.workflow.creative.tasks.finalize_audio_task")
 def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
     """
     [Callback] 配音回调 (完整版)。
