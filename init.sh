@@ -113,15 +113,6 @@ sed -i.bak "s|DJANGO_SUPERUSER_PASSWORD=.*|DJANGO_SUPERUSER_PASSWORD=\"${DJANGO_
 sed -i.bak "s|LABEL_STUDIO_ACCESS_TOKEN=.*|LABEL_STUDIO_ACCESS_TOKEN=\"${LABEL_STUDIO_ACCESS_TOKEN}\"|" "$ENV_FILE"
 sed -i.bak "s|DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=\"${DJANGO_ALLOWED_HOSTS}\"|" "$ENV_FILE"
 
-# [新增] Cloud API 交互配置模块
-echo
-echo "--- Cloud API Configuration (VSS-Cloud) ---"
-echo "Please enter the connection details for the Cloud Orchestrator."
-read -p "Cloud API Base URL (e.g., http://cloud.example.com:8000): " CLOUD_API_BASE_URL
-read -p "Cloud Instance ID (Your Edge unique ID): " CLOUD_INSTANCE_ID
-read -p "Cloud API Key: " CLOUD_API_KEY
-echo
-
 rm -f "${ENV_FILE}.bak"
 chmod 600 "$ENV_FILE"
 
