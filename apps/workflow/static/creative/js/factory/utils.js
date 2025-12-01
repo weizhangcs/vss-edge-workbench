@@ -1,4 +1,6 @@
+// apps/workflow/static/creative/js/factory/utils.js
 // [FIXED] 移除 export，直接挂载到 window
+
 window.FactoryLogic = {
     parseEnum: (str) => {
         if (!str) return [];
@@ -15,7 +17,6 @@ window.FactoryLogic = {
 
         let res = [];
         let count = 0;
-        // 浮点数精度修正
         for (let i = start; i <= end + 0.00001; i += step) {
             res.push(Number(i.toFixed(2)));
             count++;
@@ -30,13 +31,14 @@ window.FactoryLogic = {
             if (key === '_meta') continue;
 
             let c = domainStrategy[key];
-            if (c.type === 'fixed') {
+            // [新增] custom 类型计数为 1
+            if (c.type === 'fixed' || c.type === 'custom') {
                 total *= 1;
             } else if (c.type === 'enum') {
-                let len = window.FactoryLogic.parseEnum(c.values_str).length; // Use Full Path
+                let len = window.FactoryLogic.parseEnum(c.values_str).length;
                 total *= (len > 0 ? len : 1);
             } else if (c.type === 'range') {
-                let len = window.FactoryLogic.calculateRange(c).length; // Use Full Path
+                let len = window.FactoryLogic.calculateRange(c).length;
                 total *= (len > 0 ? len : 1);
             }
         }
@@ -51,6 +53,7 @@ window.FactoryLogic = {
         for (const key in savedFlatConfig) {
             if (Object.prototype.hasOwnProperty.call(merged, key)) {
                 const val = savedFlatConfig[key];
+                // 默认将保存的值视为 fixed，用户可在 UI 切换为 custom
                 merged[key] = {
                     type: 'fixed',
                     value: String(val)

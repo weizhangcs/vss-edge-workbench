@@ -1,4 +1,6 @@
-// [FIXED] 移除 import/export，使用全局变量
+// apps/workflow/static/creative/js/factory/widgets.js
+
+// [Global Deps]
 const Logic = window.FactoryLogic;
 const { React } = window;
 const {
@@ -7,13 +9,14 @@ const {
 } = window.antd;
 const { Text } = Typography;
 const { CheckableTag } = Tag;
+const { TextArea } = Input; // [新增] 引入 TextArea
 
-// 1. 策略切换器 (图标按钮)
-// [FIXED] 移除 export
+// 1. 策略切换器
 const StrategyTypeSwitcher = ({ value, onChange, isNumeric, disabled }) => {
     const options = [
-        { value: 'fixed', label: '固定', icon: <span className="material-symbols-outlined text-[16px] align-middle">edit</span> },
-        { value: 'enum', label: '枚举', icon: <span className="material-symbols-outlined text-[16px] align-middle">format_list_bulleted</span> }
+        { value: 'custom', label: '自定义', icon: <span className="material-symbols-outlined text-[16px] align-middle">edit</span> }, // [恢复] 笔 = Custom
+        { value: 'fixed', label: '单选', icon: <span className="material-symbols-outlined text-[16px] align-middle">check_circle</span> },
+        { value: 'enum', label: '多选', icon: <span className="material-symbols-outlined text-[16px] align-middle">checklist</span> }
     ];
     if (isNumeric) {
         options.push({ value: 'range', label: '范围', icon: <span className="material-symbols-outlined text-[16px] align-middle">linear_scale</span> });
@@ -32,7 +35,6 @@ const StrategyTypeSwitcher = ({ value, onChange, isNumeric, disabled }) => {
 };
 
 // 2. 胶囊选择器 (多选)
-// [FIXED] 移除 export
 const WidgetPillsMulti = ({ valueStr, onChange, options = [], disabled }) => {
     const selectedValues = new Set(Logic.parseEnum(valueStr));
     const normalizedOptions = options.map(o => (typeof o === 'string' ? {label: o, value: o} : o));
@@ -62,7 +64,6 @@ const WidgetPillsMulti = ({ valueStr, onChange, options = [], disabled }) => {
 };
 
 // 3. 普通胶囊 (单选)
-// [FIXED] 移除 export
 const WidgetPills = ({ valueStr, onChange, options = [], disabled, singleSelect }) => {
     const normalizedOptions = options.map(o => (typeof o === 'string' ? {label: o, value: o} : o));
 
@@ -112,7 +113,6 @@ const WidgetPills = ({ valueStr, onChange, options = [], disabled, singleSelect 
 };
 
 // 4. 分段控制器
-// [FIXED] 移除 export
 const WidgetSegmented = ({ value, onChange, options = [], disabled }) => {
     const normalizedOptions = options.map(o => (typeof o === 'string' ? {label: o, value: o} : o));
     return (
@@ -127,7 +127,6 @@ const WidgetSegmented = ({ value, onChange, options = [], disabled }) => {
 };
 
 // 5. 滑块
-// [FIXED] 移除 export
 const WidgetSlider = ({ value, onChange, min, max, step, unit, disabled }) => {
     return (
         <Row gutter={12} align="middle">
@@ -154,14 +153,31 @@ const WidgetSlider = ({ value, onChange, min, max, step, unit, disabled }) => {
     );
 };
 
-// 6. 普通输入
-// [FIXED] 移除 export
-const WidgetInput = ({ value, onChange, disabled }) => (
-    <Input value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled} />
-);
+// 6. [核心修复] 普通输入 (支持 TextArea)
+const WidgetInput = ({ value, onChange, disabled, placeholder, isTextArea }) => {
+    if (isTextArea) {
+        return (
+            <TextArea
+                value={value || ''}
+                onChange={e => onChange(e.target.value)}
+                disabled={disabled}
+                placeholder={placeholder}
+                rows={3} // [需求] 3行高度
+            />
+        );
+    }
+    return (
+        <Input
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
+            disabled={disabled}
+            placeholder={placeholder || "请输入自定义值..."}
+            prefix={<span className="material-symbols-outlined text-gray-400 text-sm">edit</span>}
+        />
+    );
+};
 
 // 7. 范围输入组
-// [FIXED] 移除 export
 const WidgetRangeGroup = ({ config, onChange, disabled }) => {
     const handleChange = (field, val) => onChange({ ...config, [field]: val });
     const preview = Logic.calculateRange(config);
@@ -187,15 +203,34 @@ const WidgetRangeGroup = ({ config, onChange, disabled }) => {
 };
 
 // 8. 配置行 (Controller)
-// [FIXED] 移除 export
-const ConfigRow = ({ field, config, onConfigChange, onTypeChange, isLocked, badgeColor }) => {
+const ConfigRow = ({ fieldKey, field, config, onConfigChange, onTypeChange, isLocked }) => {
     const commonProps = { disabled: isLocked, style: { width: '100%' } };
 
+    // [核心修复] 自定义占位符映射 (您指定的文案)
+    const CUSTOM_PLACEHOLDERS = {
+        narrative_focus: "请描写自定义的创作思路，格式如下： 剧集“{asset_name}”中主角个人的成长弧光，性格转变的关键节点。请保留 剧集“{asset_name}”",
+        style: "请描述自定义的创作的风格，格式如下： 你是一位客观冷静的纪录片解说员，语调平实，注重事实陈述。"
+    };
+
     const renderWidget = () => {
-        // Range Mode
+        // A. [核心修复] Custom Mode -> TextArea
+        if (config.type === 'custom') {
+            const isTextArea = ['narrative_focus', 'style'].includes(fieldKey);
+            const placeholder = CUSTOM_PLACEHOLDERS[fieldKey] || "请输入自定义值...";
+
+            return <WidgetInput
+                value={config.value}
+                onChange={v => onConfigChange({...config, value: v})}
+                disabled={isLocked}
+                isTextArea={isTextArea}
+                placeholder={placeholder}
+            />;
+        }
+
+        // B. Range Mode
         if (config.type === 'range') return <WidgetRangeGroup config={config} onChange={onConfigChange} disabled={isLocked} />;
 
-        // Enum Mode
+        // C. Enum Mode
         if (config.type === 'enum') {
             if (field.options) {
                 return <WidgetPillsMulti valueStr={config.values_str} options={field.options} onChange={v => onConfigChange({...config, values_str: v})} disabled={isLocked} />;
@@ -203,7 +238,7 @@ const ConfigRow = ({ field, config, onConfigChange, onTypeChange, isLocked, badg
             return <Select mode="tags" value={Logic.parseEnum(config.values_str)} onChange={v => onConfigChange({...config, values_str: v.join(', ')})} {...commonProps} />;
         }
 
-        // Fixed Mode
+        // D. Fixed Mode
         if (config.type === 'fixed') {
             if (field.widget === 'segmented' || field.widget === 'speed_preset') {
                 const opts = field.options?.map(o => (typeof o === 'string' ? {label: o, value: o} : o)) || [];
@@ -230,14 +265,21 @@ const ConfigRow = ({ field, config, onConfigChange, onTypeChange, isLocked, badg
                         <span className="material-symbols-outlined text-gray-400 text-sm cursor-help">help</span>
                     </Tooltip>
                 </Space>
-                <StrategyTypeSwitcher value={config.type} onChange={onTypeChange} isNumeric={field.is_numeric} disabled={isLocked} />
+                <StrategyTypeSwitcher
+                    value={config.type}
+                    onChange={onTypeChange}
+                    isNumeric={field.is_numeric}
+                    // [新增] 如果有 options (且不是custom/range)，才允许切固定/枚举。
+                    // 这里简单处理：Custom总是可用。
+                    disabled={isLocked}
+                />
             </div>
             {renderWidget()}
         </div>
     );
 };
 
-// [FIXED] 挂载到 window 对象
+// [Global Mount]
 window.FactoryWidgets = {
     ConfigRow,
     WidgetPills,
