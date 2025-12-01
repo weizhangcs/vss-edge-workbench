@@ -2,14 +2,19 @@
 
 import json
 import logging
+import time
 from decimal import Decimal
 
 from django.contrib import messages
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from .forms import DubbingConfigurationForm, LocalizeConfigurationForm, NarrationConfigurationForm
 from .projects import CreativeProject
+from .services.orchestrator import CreativeOrchestrator
 from .tasks import (
     start_audio_task,
     start_edit_script_task,
@@ -62,9 +67,13 @@ def launch_factory_view(request, project_id):
     [Factory 入口] 参数工厂启动器
     """
     project = get_object_or_404(CreativeProject, id=project_id)
+    source_language = "zh-CN"
+    if project.asset:
+        source_language = project.asset.language
 
     # 1. 构建资产清单 (告诉前端哪些步骤已有产出物)
     assets = {
+        "source_language": source_language,
         "narration": {
             "exists": bool(project.narration_script_file),
             "name": project.narration_script_file.name if project.narration_script_file else None,
@@ -237,3 +246,102 @@ def trigger_synthesis_view(request, project_id):
     messages.success(request, "已启动视频合成任务。")
 
     return redirect(reverse("admin:workflow_creativeproject_tab_4_synthesis", args=[project_id]))
+
+
+def submit_factory_batch_view(request, project_id):
+    """
+    [API] 接收前端工厂生成的策略 JSON，启动批量编排任务。
+    URL: /admin/workflow/creative/project/<id>/factory/submit/
+    Payload: {
+        "config": { ... }, // 完整策略树
+        "meta": { "total_jobs": 12 }
+    }
+    """
+    project = get_object_or_404(CreativeProject, id=project_id)
+
+    try:
+        # 1. 解析 JSON Body
+        data = json.loads(request.body)
+        strategy_config = data.get("config")
+        meta = data.get("meta", {})
+        total_count = meta.get("total_jobs", 1)
+
+        if not strategy_config:
+            return JsonResponse({"status": "error", "message": "Missing 'config' in payload"}, status=400)
+
+        # 2. 初始化编排器 (传入 inference_project_id)
+        # 注意：CreativeProject 关联了 InferenceProject
+        if not project.inference_project:
+            return JsonResponse({"status": "error", "message": "关联的推理项目不存在"}, status=400)
+
+        orchestrator = CreativeOrchestrator(str(project.inference_project.id))
+
+        # 3. 调用编排逻辑 (需要 Orchestrator 支持 V3 策略)
+        # 我们假设 Orchestrator 增加了一个名为 create_batch_from_strategy 的入口
+        batch = orchestrator.create_batch_from_strategy(
+            count=total_count, strategy=strategy_config, source_creative_project_id=str(project.id)  # 传入当前项目ID作为父本或参考
+        )
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": f"成功创建批次 Batch #{batch.id}，共 {batch.total_count} 个任务。",
+                "batch_id": batch.id,
+                "redirect_url": f"/admin/workflow/creativebatch/{batch.id}/change/",  # 以此跳到批次页
+            }
+        )
+
+    except json.JSONDecodeError:
+        return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
+    except Exception as e:
+        logger.exception("Factory Submit Error")
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)
+
+
+def debug_factory_batch_view(request, project_id):
+    """
+    [API] 接收前端工厂策略，模拟生成参数，并生成可下载的 JSON 文件。
+    URL: /workflow/creative/project/<id>/factory/debug/
+    """
+    project = get_object_or_404(CreativeProject, id=project_id)
+
+    try:
+        data = json.loads(request.body)
+        strategy_config = data.get("config")
+        meta = data.get("meta", {})
+        total_count = meta.get("total_jobs", 1)
+
+        if not strategy_config:
+            return JsonResponse({"status": "error", "message": "Missing 'config'"}, status=400)
+
+        if not project.inference_project:
+            return JsonResponse({"status": "error", "message": "关联的推理项目不存在"}, status=400)
+
+        orchestrator = CreativeOrchestrator(str(project.inference_project.id))
+
+        # 1. 执行 Dry-Run
+        debug_results = orchestrator.preview_batch_creation(count=total_count, strategy=strategy_config)
+
+        # 2. [新增] 将结果写入临时文件
+        # 构造文件名: debug_strategy_{project_id}_{timestamp}.json
+        timestamp = int(time.time())
+        file_name = f"debug/factory_preview_{project.id}_{timestamp}.json"
+        file_content = json.dumps(debug_results, indent=2, ensure_ascii=False)
+
+        # 使用 Django 默认存储保存 (会自动处理 S3 或 本地路径)
+        # 注意：如果目录不存在，FileSystemStorage 会自动创建
+        saved_path = default_storage.save(file_name, ContentFile(file_content.encode("utf-8")))
+        file_url = default_storage.url(saved_path)
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": f"Debug 完成！生成了 {len(debug_results)} 条配置。",
+                "debug_data": debug_results,  # 保留用于 Console 查看
+                "download_url": file_url,  # [新增] 下载链接
+            }
+        )
+
+    except Exception as e:
+        logger.exception("Factory Debug Error")
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)

@@ -1,96 +1,191 @@
-# 文件路径: apps/workflow/creative/services/orchestrator.py (新建)
+# apps/workflow/creative/services/orchestrator.py
 
+import json  # [新增引用]
+import logging
 import random
 
 from django.db import transaction
 
 from ..projects import CreativeBatch, CreativeProject
 from ..tasks import start_narration_task
+from .payloads import PayloadBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class CreativeOrchestrator:
-    """
-    负责处理批量创作的参数组装和项目初始化。
-    """
-
-    # 参数池定义
-    OPTIONS = {
-        "narrative_focus": ["romantic_progression", "career_growth", "suspense_thriller", "dramatic_conflict"],
-        "style": ["humorous", "emotional", "suspense", "straight"],
-        "perspective": ["third_person", "first_person"],
-        # Scope 随机策略：随机选取 3-5 集的跨度，或者全集
-        # Audio 语速随机范围: 0.8 - 1.3
-    }
-
+    # ... (__init__, _resolve_value, _flatten_strategy 保持不变) ...
     def __init__(self, inference_project_id: str):
         self.inference_project_id = inference_project_id
 
-    def _generate_random_config(self, fixed_params: dict) -> dict:
+    def _resolve_value(self, field_config: dict):
         """
-        生成单次创作的全流程配置。
-        fixed_params 中存在的键值保持不变，不存在的则随机生成。
+        [核心逻辑] 解析单个配置项的值。
+        将 {type: 'range', min: 1, max: 5} 解析为具体的数值 (如 3)。
         """
-        # 1. Narration Config
-        narrative_focus = fixed_params.get("narrative_focus") or random.choice(self.OPTIONS["narrative_focus"])
-        style = fixed_params.get("style") or random.choice(self.OPTIONS["style"])
-        perspective = fixed_params.get("perspective") or random.choice(self.OPTIONS["perspective"])
-        target_duration = fixed_params.get("target_duration_minutes") or random.randint(3, 8)
+        if not isinstance(field_config, dict):
+            return field_config
 
-        # Scope 处理 (如果用户没指定，这里简单处理为默认 1-5，实际可更复杂)
-        scope_start = fixed_params.get("scope_start", 1)
-        scope_end = fixed_params.get("scope_end", 5)
+        c_type = field_config.get("type")
 
-        narration_config = {
-            "narrative_focus": narrative_focus,
-            "style": style,
-            "perspective": perspective,
-            "target_duration_minutes": target_duration,
-            "scope_start": scope_start,
-            "scope_end": scope_end,
-        }
+        # 1. 固定值 / 文本输入 / 单选
+        if c_type in ["single", "text", "fixed", "custom"]:
+            return field_config.get("value")
 
-        # 2. Audio Config
-        # [需求限制] 模板只开放一个
-        audio_template = "chinese_paieas_replication"
+        # 2. 枚举多选 (Enum) -> 随机选一个
+        if c_type == "enum":
+            val_str = field_config.get("values_str", "")
+            val_str = val_str.replace("，", ",")  # 兼容中文逗号
+            options = [x.strip() for x in val_str.split(",") if x.strip()]
+            if not options:
+                return None
+            return random.choice(options)
 
-        # 语速随机化 (0.9 ~ 1.2)
-        audio_speed = fixed_params.get("speed") or round(random.uniform(0.9, 1.2), 1)
+        # 3. 范围 (Range) -> 随机取值
+        if c_type == "range":
+            try:
+                mn = float(field_config.get("min", 0))
+                mx = float(field_config.get("max", 0))
+                step = float(field_config.get("step", 1))
+                if step <= 0:
+                    step = 1
 
-        audio_config = {"template_name": audio_template, "speed": audio_speed, "style": ""}  # 默认继承 narration style
+                # 生成步进序列
+                options = []
+                curr = mn
+                while curr <= mx + 0.00001:
+                    options.append(curr)
+                    curr += step
 
-        # 3. Edit Config (通常无太多参数)
-        edit_config = {"lang": "zh"}
+                val = random.choice(options) if options else mn
 
-        return {"narration": narration_config, "audio": audio_config, "edit": edit_config}
+                # 如果是整数步进，转为int，否则保留2位小数
+                if step == int(step) and mn == int(mn):
+                    return int(val)
+                return round(val, 2)
+            except Exception as e:
+                logger.warning(f"Error resolving range: {e}")
+                return 0
 
-    @transaction.atomic
-    def create_batch(self, count: int, fixed_params: dict) -> CreativeBatch:
+        # 容错：如果有 value 字段直接返回
+        return field_config.get("value")
+
+    def _flatten_strategy(self, strategy_tree: dict) -> dict:
         """
-        创建批次并初始化所有项目。
+        将前端的策略树压扁为简单的 Key-Value 配置。
         """
-        # 1. 创建 Batch 记录
+        flat_config = {}
+
+        for domain, fields in strategy_tree.items():
+            if domain.startswith("_"):
+                continue
+
+            domain_conf = {}
+            for key, conf_obj in fields.items():
+                domain_conf[key] = self._resolve_value(conf_obj)
+
+            flat_config[domain] = domain_conf
+
+        return flat_config
+
+    def preview_batch_creation(self, count: int, strategy: dict) -> list:
+        """
+        [Debug V2] 模拟批量生成，并生成 Cloud Payload 预览。
+        Returns: List of { factory_config, cloud_payload }
+        """
         from apps.workflow.inference.projects import InferenceProject
 
-        inf_proj = InferenceProject.objects.get(id=self.inference_project_id)
+        results = []
+        logger.info(f"========== [Factory Debug Start] Planning {count} Items ==========")
 
-        batch = CreativeBatch.objects.create(inference_project=inf_proj, total_count=count, batch_strategy=fixed_params)
+        try:
+            inf_proj = InferenceProject.objects.get(id=self.inference_project_id)
+            # 获取 Asset 信息 (模拟 Action 的行为)
+            asset_name = inf_proj.asset.title if inf_proj.asset else "Unknown Asset"
+            asset_id = str(inf_proj.asset.id) if inf_proj.asset else "unknown-id"
+            # 模拟蓝图路径 (Debug 模式下可能文件不存在，给个占位符)
+            blueprint_path = "debug/mock_blueprint.json"
+            if inf_proj.annotation_project.final_blueprint_file:
+                blueprint_path = inf_proj.annotation_project.final_blueprint_file.name
 
-        # 2. 循环创建 Project 并启动第一步
+        except Exception as e:
+            logger.error(f"Debug Prep Failed: {e}")
+            return [{"error": str(e)}]
+
         for i in range(count):
-            # 生成该项目的独立配置
-            full_config = self._generate_random_config(fixed_params)
+            # 1. Factory Output: 策略抽样
+            instance_config = self._flatten_strategy(strategy)
 
-            # 创建项目
+            # 2. Cloud Payload: 模拟转换
+            cloud_payload = {}
+            narration_config = instance_config.get("narration", {})
+
+            try:
+                # 调用 PayloadBuilder 生成真实 Payload
+                # 注意：这会触发 Pydantic 的校验逻辑 (如 validate_custom_usage)
+                cloud_payload = PayloadBuilder.build_narration_payload(
+                    asset_name=asset_name, asset_id=asset_id, blueprint_path=blueprint_path, raw_config=narration_config
+                )
+            except Exception as e:
+                cloud_payload = {"error": f"Payload Builder Failed: {str(e)}"}
+
+            # 3. 组装结果
+            debug_item = {
+                "batch_index": i + 1,
+                "factory_output": instance_config,  # 参数工厂的产出
+                "cloud_payload": cloud_payload,  # 发给 Cloud 的产出
+            }
+
+            # 打印日志 (可选，因为会生成文件)
+            logger.info(f"[Factory Debug] Item #{i + 1}: \n{json.dumps(debug_item, ensure_ascii=False)}")
+
+            results.append(debug_item)
+
+        logger.info("========== [Factory Debug End] ==========")
+        return results
+
+    @transaction.atomic
+    def create_batch_from_strategy(self, count: int, strategy: dict) -> CreativeBatch:
+        # ... (保持原有的 create_batch_from_strategy 逻辑不变) ...
+        from apps.workflow.inference.projects import InferenceProject
+
+        try:
+            inf_proj = InferenceProject.objects.get(id=self.inference_project_id)
+        except InferenceProject.DoesNotExist:
+            logger.error(f"InferenceProject {self.inference_project_id} not found.")
+            raise
+
+        # 1. 创建 Batch
+        batch = CreativeBatch.objects.create(inference_project=inf_proj, total_count=count, batch_strategy=strategy)
+
+        logger.info(f"Starting Batch {batch.id} creation with count {count}")
+
+        # 2. 循环创建 Project
+        for i in range(count):
+            # A. 解析参数
+            instance_config = self._flatten_strategy(strategy)
+
+            # B. 构造名称
+            project_name = f"{inf_proj.name} - Batch {batch.id} - #{i + 1}"
+
+            # 构造描述
+            focus = instance_config.get("narration", {}).get("narrative_focus", "N/A")
+            style = instance_config.get("narration", {}).get("style", "N/A")
+            desc = f"Generated via Factory.\nFocus: {focus}\nStyle: {style}"
+
+            # C. 创建 Project
             project = CreativeProject.objects.create(
                 inference_project=inf_proj,
                 batch=batch,
-                name=f"{inf_proj.name} - Batch {batch.id} - #{i + 1}",
-                description=f"Auto-generated via Orchestrator.\nFocus: {full_config['narration']['narrative_focus']}\nStyle: {full_config['narration']['style']}",  # noqa: E501
-                auto_config=full_config,  # [关键] 保存全流程配置
+                name=project_name,
+                description=desc,
+                auto_config=instance_config,
             )
 
-            # 立即启动第一步 (Narration)
-            # 注意：我们把配置传给 Task
-            start_narration_task.delay(project_id=str(project.id), config=full_config["narration"])
+            # D. 启动任务 (Narration)
+            if "narration" in instance_config:
+                narration_config = instance_config["narration"]
+                if narration_config:
+                    start_narration_task.delay(project_id=str(project.id), config=narration_config)
 
         return batch

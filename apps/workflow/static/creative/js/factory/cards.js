@@ -4,13 +4,11 @@ const { React } = window;
 const { Card, Segmented, Space, Tag, Row, Col, Divider, Typography } = window.antd;
 const { Text } = Typography;
 
-// 1. 模式切换器 (红绿反转)
+// 1. 模式切换器
 const ModeSwitcher = ({ hasAsset, mode, onChange }) => {
     const options = hasAsset
         ? [
-            // [修改] Locked = Red (警示)
             { label: '锁定 (复用)', value: 'LOCKED', icon: <span className="material-symbols-outlined text-[14px] align-middle mr-1">lock</span> },
-            // [修改] Recreate = Green (通行)
             { label: '二次创作', value: 'RECREATE', icon: <span className="material-symbols-outlined text-[14px] align-middle mr-1">sync</span> }
           ]
         : [
@@ -18,10 +16,9 @@ const ModeSwitcher = ({ hasAsset, mode, onChange }) => {
             { label: '新增', value: 'NEW', icon: <span className="material-symbols-outlined text-[14px] align-middle mr-1">add</span> }
           ];
 
-    // [修改] 动态背景色
     let bg = '#f5f5f5';
-    if (mode === 'LOCKED') bg = '#fff1f0';   // Red Tint
-    else if (mode === 'RECREATE') bg = '#f6ffed'; // Green Tint
+    if (mode === 'LOCKED') bg = '#fff1f0';
+    else if (mode === 'RECREATE') bg = '#f6ffed';
     else if (mode === 'NEW') bg = '#e6f7ff';
 
     return (
@@ -44,20 +41,17 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
     const showForm = mode !== 'SKIP';
     const formDisabled = isLocked;
 
-    // [修改] 边框颜色
     let borderColor = '#f0f0f0';
-    if (isLocked) borderColor = '#ffccc7'; // Red Border
-    if (isRecreate) borderColor = '#b7eb8f'; // Green Border
+    if (isLocked) borderColor = '#ffccc7';
+    if (isRecreate) borderColor = '#b7eb8f';
 
-    // 头部背景
     let headBg = '#fff';
-    if (isLocked) headBg = '#fff2f0'; // Red
-    else if (isRecreate) headBg = '#f6ffed'; // Green (Optional)
+    if (isLocked) headBg = '#fff2f0';
+    else if (isRecreate) headBg = '#f6ffed';
 
-    // 图标颜色
     let iconColor = '#8c8c8c';
-    if (isLocked) iconColor = '#cf1322'; // Red
-    else if (isRecreate) iconColor = '#389e0d'; // Green
+    if (isLocked) iconColor = '#cf1322';
+    else if (isRecreate) iconColor = '#389e0d';
 
     return (
         <Card
@@ -66,8 +60,9 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
                     <span className="material-symbols-outlined" style={{ color: iconColor, fontSize: 20 }}>
                         {isSkipped ? 'do_not_disturb_on' : (isLocked ? 'lock' : 'edit_square')}
                     </span>
+                    {/* [核心修改] 移除 "Step X:" 前缀，仅显示 Title */}
                     <Text strong style={{ color: isSkipped ? '#bfbfbf' : undefined, textDecoration: isSkipped ? 'line-through' : undefined, fontSize: 15 }}>
-                        Step {stepNum}: {title}
+                        {title}
                     </Text>
                     <Tag color={isSkipped ? 'default' : badgeColor}>{domain.toUpperCase()}</Tag>
                 </Space>
@@ -78,7 +73,7 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
             style={{ marginBottom: 24, borderColor: borderColor }}
             headStyle={{ background: headBg }}
             bodyStyle={{
-                background: isLocked ? '#fffcfc' : '#fff', // Slightly red tint body if locked
+                background: isLocked ? '#fffcfc' : '#fff',
                 opacity: isLocked ? 0.9 : 1,
                 transition: 'opacity 0.3s'
             }}
@@ -86,7 +81,6 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
         >
             {showForm && (
                 <>
-                    {/* [修改] 锁定提示条 (Red) */}
                     {isLocked && locked_source && (
                         <div style={{ marginBottom: 24, padding: '8px 12px', background: '#fff1f0', border: '1px dashed #ffccc7', borderRadius: 6, color: '#cf1322', fontSize: 12, display: 'flex', alignItems: 'center' }}>
                             <span className="material-symbols-outlined text-[16px]" style={{marginRight: 8}}>lock</span>
@@ -95,7 +89,6 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
                         </div>
                     )}
 
-                    {/* [修改] 二创提示条 (Green) */}
                     {isRecreate && (
                          <div style={{ marginBottom: 24, padding: '8px 12px', background: '#f6ffed', border: '1px dashed #b7eb8f', borderRadius: 6, color: '#389e0d', fontSize: 12, display: 'flex', alignItems: 'center' }}>
                             <span className="material-symbols-outlined text-[16px]" style={{marginRight: 8}}>sync</span>
@@ -140,5 +133,4 @@ const StrategyGroupCard = ({ stepNum, title, groups, domain, badgeColor, strateg
     );
 };
 
-// [FIXED] 挂载到全局
 window.FactoryCards = { StrategyGroupCard };

@@ -1,25 +1,33 @@
 // apps/workflow/static/creative/js/factory/main.js
 
-// 1. 引用配置
 const { SCHEMA, DEFAULTS } = window.FactoryConfig;
-
-// [CRITICAL FIX] 修正引用：FactoryLogic 本身就是逻辑对象，不需要解构
 const Logic = window.FactoryLogic;
-
 const { StrategyGroupCard } = window.FactoryCards;
 
 const { React, ReactDOM } = window;
 const { useState, useMemo } = React;
-const { Card, Statistic, Divider, Space, Button, Typography } = window.antd;
+const { Card, Statistic, Divider, Space, Button, Typography, message } = window.antd;
 const { Text } = Typography;
 
-// --- State Factory ---
+// --- Helpers ---
+const getCookie = (name) => {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+};
 
+// --- State Factory ---
 const getInitialState = () => {
     const serverData = window.SERVER_DATA || {};
-    console.group("[Factory Debug] Initializing State");
-    console.log("1. Server Data Received:", serverData);
-
     const assets = serverData.assets || {};
     const savedConfig = serverData.initial_config || {};
 
@@ -27,16 +35,11 @@ const getInitialState = () => {
         let mode = 'NEW';
         if (hasAsset) mode = 'LOCKED';
         else if (domain === 'localize') mode = 'SKIP';
-
-        // [Debug] 打印模式判断过程
-        console.log(`   - Domain: ${domain} | Asset Exists: ${hasAsset} -> Mode: ${mode}`);
         return mode;
     };
 
     const createStrategy = (domain, defaults) => {
-        // 强制转换为布尔值
         const hasAsset = !!(assets[domain] && assets[domain].exists);
-
         const strategy = {
             ...Logic.transformSavedConfig(defaults, savedConfig[domain]),
             _meta: {
@@ -48,7 +51,7 @@ const getInitialState = () => {
         return strategy;
     };
 
-    const initialState = {
+    return {
         narration: createStrategy('narration', DEFAULTS.narration),
         localize: createStrategy('localize', DEFAULTS.localize),
         audio: createStrategy('audio', DEFAULTS.audio),
@@ -57,24 +60,20 @@ const getInitialState = () => {
             _meta: { mode: 'NEW', has_asset: false }
         }
     };
-
-    console.log("2. Calculated Initial State:", initialState);
-    console.groupEnd();
-
-    return initialState;
 };
 
 // --- Main App ---
-
 const FactoryApp = () => {
     const [strategy, setStrategy] = useState(getInitialState);
+    const [loading, setLoading] = useState(false);
+    const [debugLoading, setDebugLoading] = useState(false);
+    const sourceLanguage = window.SERVER_DATA?.assets?.source_language || 'zh-CN';
 
     const updateDomain = (domain, key, newConfig) => {
         setStrategy(prev => ({ ...prev, [domain]: { ...prev[domain], [key]: newConfig } }));
     };
 
     const changeMode = (domain, newMode) => {
-        console.log(`[Mode Change] ${domain} -> ${newMode}`);
         setStrategy(prev => ({
             ...prev,
             [domain]: { ...prev[domain], _meta: { ...prev[domain]._meta, mode: newMode } }
@@ -112,6 +111,52 @@ const FactoryApp = () => {
         meta: { total_jobs: totalCombinations }
     }, null, 2), [strategy, totalCombinations]);
 
+// [通用请求函数]
+    const sendRequest = async (url, isLoadingSetter) => {
+        isLoadingSetter(true);
+        const csrftoken = getCookie('csrftoken');
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+                body: cleanStrategyJson
+            });
+            const data = await response.json();
+            if (response.ok && data.status === 'success') {
+                message.success(data.message || "操作成功");
+                if (data.debug_data) {
+                    console.group("🏭 Factory Debug Output");
+                    console.log(data.debug_data);
+                    console.groupEnd();
+                }
+                if (data.redirect_url) {
+                    setTimeout(() => window.location.href = data.redirect_url, 1000);
+                }
+            } else {
+                message.error("失败: " + (data.message || "未知错误"));
+            }
+        } catch (error) {
+            console.error('Request Error:', error);
+            message.error("网络错误");
+        } finally {
+            isLoadingSetter(false);
+        }
+    };
+
+    const handleSubmit = () => {
+        if (totalCombinations > 50 && !confirm(`即将生成 ${totalCombinations} 个任务，确定要继续吗？`)) return;
+        const projectId = window.SERVER_DATA?.project_id;
+        const url = `/workflow/creative/project/${projectId}/factory/submit/`;
+        sendRequest(url, setLoading);
+    };
+
+    // [核心新增] Debug 处理
+    const handleDebug = () => {
+        const projectId = window.SERVER_DATA?.project_id;
+        const url = `/workflow/creative/project/${projectId}/factory/debug/`;
+        sendRequest(url, setDebugLoading);
+    };
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-9 space-y-8">
@@ -119,6 +164,7 @@ const FactoryApp = () => {
                     groups={groupFields(SCHEMA.narration)}
                     strategyData={strategy.narration}
                     metaData={strategy.narration._meta}
+                    sourceLanguage={sourceLanguage}
                     onModeChange={(m) => changeMode('narration', m)}
                     onUpdate={(k, v) => updateDomain('narration', k, v)} />
 
@@ -126,6 +172,7 @@ const FactoryApp = () => {
                     groups={groupFields(SCHEMA.localize)}
                     strategyData={strategy.localize}
                     metaData={strategy.localize._meta}
+                    sourceLanguage={sourceLanguage}
                     onModeChange={(m) => changeMode('localize', m)}
                     onUpdate={(k, v) => updateDomain('localize', k, v)} />
 
@@ -133,14 +180,15 @@ const FactoryApp = () => {
                     groups={groupFields(SCHEMA.audio)}
                     strategyData={strategy.audio}
                     metaData={strategy.audio._meta}
+                    sourceLanguage={sourceLanguage}
                     onModeChange={(m) => changeMode('audio', m)}
                     onUpdate={(k, v) => updateDomain('audio', k, v)} />
 
-                 {/* Step 3 Edit */}
                  <StrategyGroupCard stepNum="3" title="剪辑参数" domain="edit" badgeColor="cyan"
                     groups={groupFields(SCHEMA.edit)}
                     strategyData={strategy.edit}
                     metaData={strategy.edit._meta}
+                    sourceLanguage={sourceLanguage}
                     onModeChange={(m) => changeMode('edit', m)}
                     onUpdate={(k, v) => updateDomain('edit', k, v)} />
             </div>
@@ -158,9 +206,30 @@ const FactoryApp = () => {
                                 </div>
                             ))}
                        </Space>
-                       <Button type="primary" size="large" block style={{marginTop: 20}} icon={<span className="material-symbols-outlined align-middle" style={{fontSize:18}}>rocket_launch</span>}>
-                           生成并入队
-                       </Button>
+
+                       {/* [核心新增] 按钮组 */}
+                       <div style={{ marginTop: 20, display: 'flex', gap: '10px' }}>
+                           <Button
+                               size="large"
+                               icon={<span className="material-symbols-outlined align-middle" style={{fontSize:18}}>bug_report</span>}
+                               loading={debugLoading}
+                               onClick={handleDebug}
+                               style={{ flex: 1 }}
+                           >
+                               Debug
+                           </Button>
+                           <Button
+                               type="primary"
+                               size="large"
+                               icon={<span className="material-symbols-outlined align-middle" style={{fontSize:18}}>rocket_launch</span>}
+                               loading={loading}
+                               onClick={handleSubmit}
+                               style={{ flex: 1.5 }}
+                           >
+                               生成
+                           </Button>
+                       </div>
+
                    </Card>
                    <Card size="small" title="Payload" style={{marginTop: 16}} bodyStyle={{padding: 0}}>
                         <pre className="custom-scrollbar text-[10px] text-green-600 font-mono overflow-auto h-64 p-3 bg-gray-50 m-0">{cleanStrategyJson}</pre>

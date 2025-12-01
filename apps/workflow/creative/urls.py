@@ -28,4 +28,15 @@ urlpatterns = [
         creative_views.trigger_synthesis_view,
         name="creative_trigger_synthesis",
     ),
+    # [新增] 批量工厂提交接口
+    path(
+        "project/<uuid:project_id>/factory/submit/",
+        creative_views.submit_factory_batch_view,
+        name="creative_factory_submit",
+    ),
+    path(
+        "project/<uuid:project_id>/factory/debug/",
+        creative_views.debug_factory_batch_view,
+        name="creative_factory_debug",
+    ),
 ]
