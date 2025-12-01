@@ -1,6 +1,36 @@
 {% extends "admin/change_form.html" %}
 {% load i18n admin_urls unfold %}
 
+{# --- [方案 B] 放弃 object-tools，直接插入在表单内容的最上方 --- #}
+{% block content %}
+
+    {# 1. 显式渲染工厂入口按钮 #}
+    {% if launch_factory_url %}
+    <div class="mb-6 p-4 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-white rounded-full text-indigo-600 shadow-sm">
+                <span class="material-symbols-outlined text-2xl">precision_manufacturing</span>
+            </div>
+            <div>
+                <h3 class="text-lg font-bold text-indigo-900">批量参数工厂 (Pipeline Factory)</h3>
+                <p class="text-sm text-indigo-700">基于当前项目的配置，批量生成多版本变体。</p>
+            </div>
+        </div>
+
+        <a href="{{ launch_factory_url }}" class="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-500 transition-all">
+            🚀 进入工厂模式
+        </a>
+    </div>
+    {% else %}
+        {% endif %}
+
+    {# 2. 调用父类的 content (渲染标准表单) #}
+    {{ block.super }}
+
+{% endblock %}
+
+
+{# --- 原有的配置表单逻辑 (保持不变) --- #}
 {% block after_field_sets %}
 
 <fieldset class="module aligned mt-6">
@@ -13,7 +43,6 @@
               {{ help_text }}
             </p>
 
-            {# --- [关键新增] 渲染配置表单 --- #}
             {% if configuration_form %}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 p-4 bg-gray-50 rounded border">
                     {% for field in configuration_form %}
@@ -32,7 +61,6 @@
                     {% endfor %}
                 </div>
             {% endif %}
-            {# -------------------------------- #}
 
             <button type="submit"
                    class="button variant-primary {% if trigger_disabled %}disabled{% endif %}"
@@ -43,5 +71,4 @@
     </form>
 </fieldset>
 
-{# ... Inline 子任务列表 ... #}
 {% endblock %}

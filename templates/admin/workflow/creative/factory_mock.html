@@ -1,0 +1,58 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'creative/css/factory.css' %}">
+
+    <script>
+        window.SERVER_DATA = {{ server_data_json|default:"{}"|safe }};
+        console.log("✅ [HTML] Window Data Injected:", window.SERVER_DATA);
+    </script>
+
+    <script src="{% static 'creative/js/libs/react.production.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/react-dom.production.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/dayjs.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/antd.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/babel.min.js' %}"></script>
+
+    <script type="text/javascript" src="{% static 'creative/js/factory/config.js' %}"></script>
+    <script type="text/javascript" src="{% static 'creative/js/factory/utils.js' %}"></script>
+    <script type="text/babel" src="{% static 'creative/js/factory/widgets.js' %}"></script>
+    <script type="text/babel" src="{% static 'creative/js/factory/cards.js' %}"></script>
+    <script type="text/babel" src="{% static 'creative/js/factory/main.js' %}"></script>
+
+    <style>
+        [v-cloak] { display: none; }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 pb-6 border-b border-gray-200">
+        <div>
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                    <span class="material-symbols-outlined text-3xl">precision_manufacturing</span>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900 tracking-tight">参数构建工厂</h1>
+                    <p class="text-sm text-gray-500 mt-0.5">Pipeline Factory / 全参数策略编排</p>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 md:mt-0 flex gap-3">
+            <span class="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                React Engine Active
+            </span>
+        </div>
+    </div>
+
+    <div id="react-root">
+        <div class="p-12 text-center text-gray-400">
+            <span class="material-symbols-outlined text-4xl animate-spin">progress_activity</span>
+            <p class="mt-2">正在启动工厂引擎...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

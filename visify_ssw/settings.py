@@ -198,6 +198,7 @@ MEDIA_ROOT = BASE_DIR / "media_root"
 
 # [关键修复] STATIC_URL 和 MEDIA_URL 必须使用完整的绝对 URL，指向 Nginx (9999 端口)
 STATIC_URL = f"{LOCAL_MEDIA_URL_BASE}/static/"
+# STATIC_URL = f"/static/"
 MEDIA_URL = f"{LOCAL_MEDIA_URL_BASE}/media/"
 
 # ----------------------------------------------------------------------
@@ -335,14 +336,15 @@ UNFOLD = {
                 "separator": True,
                 "items": [
                     {
-                        "title": "影视解说二创",
+                        "title": "精细化创作 (单管道)",
                         "icon": "send",
                         "link": reverse_lazy("admin:workflow_creativeproject_changelist"),
                     },
                     {
-                        "title": "批量创作编排器",
-                        "icon": "auto_mode",
-                        "link": reverse_lazy("admin:creative_batch_orchestrator"),
+                        "title": "参数构建工厂",
+                        "icon": "precision_manufacturing",
+                        # "link": reverse_lazy("admin:creative_batch_orchestrator"),
+                        "link": reverse_lazy("admin:creative_batch_factory"),
                     },
                     {
                         "title": "任务批次监控",

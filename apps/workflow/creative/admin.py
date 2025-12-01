@@ -8,6 +8,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
+from . import views as creative_views
 from .forms import (  # 导入新表单
     BatchCreationForm,
     CreativeProjectForm,
@@ -150,7 +151,15 @@ class CreativeProjectAdmin(ModelAdmin):
     # 3. 只读字段
     readonly_fields = ("asset", "status")
 
-    inlines = [CreativeJobInline]
+    # [修改] 注释掉 inlines，暂时在 UI 上隐藏子任务列表，但 TODO: 保留代码以便未来调试或加权限
+    # inlines = [CreativeJobInline]
+    inlines = []
+
+    # [新增] 辅助方法：统一注入工厂入口 URL
+    def _inject_factory_context(self, context, object_id):
+        if object_id:
+            context["launch_factory_url"] = reverse("admin:creative_project_launch_factory", args=[object_id])
+        return context
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
@@ -203,52 +212,68 @@ class CreativeProjectAdmin(ModelAdmin):
                 # [新增]
                 name=get_url_name("tab_4_synthesis"),
             ),
+            path(
+                "<uuid:project_id>/launch-factory/",
+                self.admin_site.admin_view(creative_views.launch_factory_view),
+                name="creative_project_launch_factory",
+            ),
         ]
         return custom_urls + urls
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
-        return self.tab_1_narration_view(request, object_id, extra_context)
+        extra_context = extra_context or {}
+        if object_id:
+            extra_context["launch_factory_url"] = reverse("admin:creative_project_launch_factory", args=[object_id])
 
-    # [!!! 修正 !!!]
-    # 触发器视图 (Triggers) 已被移除，逻辑已移至 views.py
+        return self.tab_1_narration_view(request, object_id, extra_context)
 
     # --- Tab 渲染视图 (Renderers) ---
 
     def tab_1_narration_view(self, request, object_id, extra_context=None):
         context = extra_context or {}
+        self._inject_factory_context(context, object_id)
+
         project = self.get_object(request, object_id)
 
-        # 1. 实例化表单 (如果是 POST，视图层会处理，这里主要负责初始渲染)
-        # 我们不需要在这里绑定 POST 数据，因为 POST 请求会直接打到 trigger_narration_view
-        form = NarrationConfigurationForm()
+        # [核心修改] 尝试从 auto_config 读取已保存的参数
+        saved_config = {}
+        if project.auto_config and isinstance(project.auto_config, dict):
+            saved_config = project.auto_config.get("narration", {})
+
+        # 使用 saved_config 作为 initial，如果没有则 Form 会使用定义时的 default
+        form = NarrationConfigurationForm(initial=saved_config)
 
         form_url = reverse("workflow:creative_trigger_narration", args=[project.pk])
 
         context["trigger_text"] = "▶️ 生成解说词 (步骤 1)"
         context["trigger_disabled"] = project.status == CreativeProject.STATUS.NARRATION_RUNNING
         context["help_text"] = "请配置解说词的叙事方向和风格。"
-        context["configuration_form"] = form  # [关键] 将表单注入上下文
+        context["configuration_form"] = form
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
-    # --- [新增] Tab 1.5 渲染视图 ---
     def tab_1_5_localize_view(self, request, object_id, extra_context=None):
         context = extra_context or {}
+        self._inject_factory_context(context, object_id)
+
         project = self.get_object(request, object_id)
 
-        form = LocalizeConfigurationForm()
+        # [核心修改] 读取 localize 配置
+        saved_config = {}
+        if project.auto_config and isinstance(project.auto_config, dict):
+            saved_config = project.auto_config.get("localize", {})
+
+        form = LocalizeConfigurationForm(initial=saved_config)
 
         form_url = reverse("workflow:creative_trigger_localize", args=[project.pk])
 
         context["trigger_text"] = "▶️ 启动本地化翻译 (步骤 1.5)"
-        # 只有当母本解说词完成后，才能进行本地化 正在运行 OR 缺少母本文件 TODO:进一步检查
         context["trigger_disabled"] = project.status == CreativeProject.STATUS.LOCALIZATION_RUNNING or not bool(
             project.narration_script_file
         )
 
         if not project.narration_script_file:
-            context["trigger_disabled"] = True
             context["help_text"] = "请先完成步骤 1 生成中文母本。"
         else:
             context["help_text"] = "基于中文母本，生成目标语言的发行脚本。"
@@ -259,26 +284,34 @@ class CreativeProjectAdmin(ModelAdmin):
 
     def tab_2_audio_view(self, request, object_id, extra_context=None):
         context = extra_context or {}
+        self._inject_factory_context(context, object_id)
+
         project = self.get_object(request, object_id)
 
-        form = DubbingConfigurationForm()  # 默认值即可
+        # [核心修改] 读取 audio 配置
+        saved_config = {}
+        if project.auto_config and isinstance(project.auto_config, dict):
+            saved_config = project.auto_config.get("audio", {})
+
+        form = DubbingConfigurationForm(initial=saved_config)
 
         form_url = reverse("workflow:creative_trigger_audio", args=[project.pk])
 
         context["trigger_text"] = "▶️ 生成配音 (步骤 2)"
-        # [UI 修复] 禁用条件：正在运行 OR 缺少母本文件
-        # (注：即使 failed 状态，只要文件在，也允许重试)
         context["trigger_disabled"] = project.status == CreativeProject.STATUS.AUDIO_RUNNING or not bool(
             project.narration_script_file
         )
+
         context["help_text"] = "配置配音的音色和语速。风格默认继承自解说词。"
-        context["configuration_form"] = form  # [关键] 将表单注入上下文
+        context["configuration_form"] = form
 
         self.change_form_template = "admin/workflow/project/creative/wizard_tab.html"
         return super().changeform_view(request, str(object_id), form_url=form_url, extra_context=context)
 
     def tab_3_edit_view(self, request, object_id, extra_context=None):
         context = extra_context or {}
+        # [修改] 调用辅助方法注入 URL
+        self._inject_factory_context(context, object_id)
         project = self.get_object(request, object_id)
 
         form_url = reverse("workflow:creative_trigger_edit", args=[project.pk])
@@ -296,6 +329,8 @@ class CreativeProjectAdmin(ModelAdmin):
 
     def tab_4_synthesis_view(self, request, object_id, extra_context=None):  # [新增]
         context = extra_context or {}
+        # [修改] 调用辅助方法注入 URL
+        self._inject_factory_context(context, object_id)
         project = self.get_object(request, object_id)
 
         form_url = reverse("workflow:creative_trigger_synthesis", args=[project.pk])
@@ -377,10 +412,22 @@ class CreativeBatchAdmin(ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
-                "orchestrator/", self.admin_site.admin_view(self.orchestrator_view), name="creative_batch_orchestrator"
+                # "orchestrator/", self.admin_site.admin_view(self.orchestrator_view)
+                # , name="creative_batch_orchestrator"
+                "factory/",
+                self.admin_site.admin_view(self.factory_view),
+                name="creative_batch_factory",
             ),
         ]
         return custom_urls + urls
+
+    def factory_view(self, request):
+        # 暂时只渲染模板，不处理 POST
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "精细化创作参数工厂 (Pipeline Factory)",
+        }
+        return render(request, "admin/workflow/creative/factory_mock.html", context)
 
     # 编排器视图
     def orchestrator_view(self, request):

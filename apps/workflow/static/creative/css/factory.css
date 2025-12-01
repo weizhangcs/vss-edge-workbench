@@ -1,0 +1,20 @@
+/* 自定义滚动条 (用于 JSON 预览) */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+/* 隐藏数字输入框的箭头 */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* 动画过渡 */
+.transition-all-300 { transition: all 0.3s ease-in-out; }
+
+/* Tailwind Component Extractions (可选，提取常用组合类) */
+.factory-input {
+    @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10;
+}
