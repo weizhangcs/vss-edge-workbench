@@ -25,6 +25,18 @@ const getCookie = (name) => {
     return cookieValue;
 };
 
+// [新增] 语言代码映射表 (Simple -> Locale)
+// 这是一个前端知识库，用于将用户选择的简写转换为云端 API 需要的标准码
+const LANG_MAPPING = {
+    "en": "en-US",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "ja": "ja-JP",
+    "ko": "ko-KR",
+    "zh": "cmn-CN",
+    "es": "es-ES"
+};
+
 // --- State Factory ---
 const getInitialState = () => {
     const serverData = window.SERVER_DATA || {};
@@ -40,6 +52,7 @@ const getInitialState = () => {
 
     const createStrategy = (domain, defaults) => {
         const hasAsset = !!(assets[domain] && assets[domain].exists);
+        // 注意：这里我们尽量保留 savedConfig 中的值，但初始 mode 由 assets 决定
         const strategy = {
             ...Logic.transformSavedConfig(defaults, savedConfig[domain]),
             _meta: {
@@ -104,14 +117,68 @@ const FactoryApp = () => {
     };
     const totalCombinations = counts.narration * counts.localize * counts.audio * counts.edit;
 
-    const cleanStrategyJson = useMemo(() => JSON.stringify({
-        strategy_version: "3.0",
-        source_project_id: window.SERVER_DATA?.project_id,
-        config: strategy,
-        meta: { total_jobs: totalCombinations }
-    }, null, 2), [strategy, totalCombinations]);
+    // [核心改造] 构建符合后端 V2 协议的 Payload
+    const cleanStrategyJson = useMemo(() => {
+        const finalConfig = {};
 
-// [通用请求函数]
+        // 1. 遍历所有领域 (narration, localize, audio, edit)
+        Object.keys(strategy).forEach(domain => {
+            const domainData = strategy[domain];
+            const { _meta, ...restConfig } = domainData; // 分离元数据和参数
+            const mode = _meta?.mode || 'NEW';
+
+            // 构造基础结构
+            const payloadItem = {
+                mode: mode,
+                config: null // 默认为 null
+            };
+
+            // 只有在 NEW 或 RECREATE 模式下，才发送具体的参数配置
+            if (mode === 'NEW' || mode === 'RECREATE') {
+                payloadItem.config = restConfig;
+            }
+
+            finalConfig[domain] = payloadItem;
+        });
+
+        // 2. [显式意图注入] 智能补全 Audio 参数
+        // 逻辑：如果 Localize 是有效的（NEW/RECREATE/LOCKED），则 Audio 应该适配其语言
+        const locMode = finalConfig.localize?.mode;
+        const locConfig = finalConfig.localize?.config;
+
+        // 检查 Audio 是否需要生成 (NEW/RECREATE)
+        if (finalConfig.audio?.mode === 'NEW' || finalConfig.audio?.mode === 'RECREATE') {
+            const audioConfig = { ...finalConfig.audio.config }; // 浅拷贝以修改
+
+            // 情况 A: 本地化启用且配置了目标语言
+            if ((locMode === 'NEW' || locMode === 'RECREATE') && locConfig?.target_lang?.value) {
+                const lang = locConfig.target_lang.value; // 如 'fr'
+                audioConfig.source_script_type = { type: 'single', value: 'localized' };
+                audioConfig.language_code = { type: 'single', value: LANG_MAPPING[lang] || 'cmn-CN' };
+            }
+            // 情况 B: 本地化被锁定 (Locked)，我们需要假设沿用上一次的语言?
+            // 这是一个边缘情况。如果 Localize Locked，前端其实不知道上次选了啥语言。
+            // 为了安全，如果 Localize Locked，我们暂不自动注入语言代码，或者默认为 master/zh。
+            // 除非我们在 server_data 里传回来 locked asset 的 metadata。
+            // 简单处理：如果是 NEW/RECREATE，我们遵循 UI 上的显式选择；如果 UI 上没选（Skip Localize），则回退默认。
+            else if (locMode === 'SKIP') {
+                audioConfig.source_script_type = { type: 'single', value: 'master' };
+                audioConfig.language_code = { type: 'single', value: 'cmn-CN' };
+            }
+
+            finalConfig.audio.config = audioConfig;
+        }
+
+        return JSON.stringify({
+            strategy_version: "3.0",
+            source_project_id: window.SERVER_DATA?.project_id,
+            config: finalConfig,
+            meta: { total_jobs: totalCombinations }
+        }, null, 2);
+
+    }, [strategy, totalCombinations]);
+
+    // [通用请求函数]
     const sendRequest = async (url, isLoadingSetter) => {
         isLoadingSetter(true);
         const csrftoken = getCookie('csrftoken');
@@ -130,7 +197,8 @@ const FactoryApp = () => {
                     console.groupEnd();
                 }
                 if (data.redirect_url) {
-                    setTimeout(() => window.location.href = data.redirect_url, 1000);
+                    // 延迟跳转，让用户看清成功提示
+                    setTimeout(() => window.location.href = data.redirect_url, 1500);
                 }
             } else {
                 message.error("失败: " + (data.message || "未知错误"));
@@ -146,14 +214,13 @@ const FactoryApp = () => {
     const handleSubmit = () => {
         if (totalCombinations > 50 && !confirm(`即将生成 ${totalCombinations} 个任务，确定要继续吗？`)) return;
         const projectId = window.SERVER_DATA?.project_id;
-        const url = `/workflow/creative/project/${projectId}/factory/submit/`;
+        const url = `/workflow/creative/project/${projectId}/factory/submit/`; // 确保使用 Admin 前缀
         sendRequest(url, setLoading);
     };
 
-    // [核心新增] Debug 处理
     const handleDebug = () => {
         const projectId = window.SERVER_DATA?.project_id;
-        const url = `/workflow/creative/project/${projectId}/factory/debug/`;
+        const url = `/workflow/creative/project/${projectId}/factory/debug/`; // 确保使用 Admin 前缀
         sendRequest(url, setDebugLoading);
     };
 
@@ -207,7 +274,6 @@ const FactoryApp = () => {
                             ))}
                        </Space>
 
-                       {/* [核心新增] 按钮组 */}
                        <div style={{ marginTop: 20, display: 'flex', gap: '10px' }}>
                            <Button
                                size="large"
@@ -231,7 +297,7 @@ const FactoryApp = () => {
                        </div>
 
                    </Card>
-                   <Card size="small" title="Payload" style={{marginTop: 16}} bodyStyle={{padding: 0}}>
+                   <Card size="small" title="Payload Preview" style={{marginTop: 16}} bodyStyle={{padding: 0}}>
                         <pre className="custom-scrollbar text-[10px] text-green-600 font-mono overflow-auto h-64 p-3 bg-gray-50 m-0">{cleanStrategyJson}</pre>
                    </Card>
                </div>

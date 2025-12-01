@@ -11,6 +11,7 @@ from django.core.files.storage import default_storage
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
 
 from .forms import DubbingConfigurationForm, LocalizeConfigurationForm, NarrationConfigurationForm
 from .projects import CreativeProject
@@ -248,6 +249,7 @@ def trigger_synthesis_view(request, project_id):
     return redirect(reverse("admin:workflow_creativeproject_tab_4_synthesis", args=[project_id]))
 
 
+@csrf_exempt
 def submit_factory_batch_view(request, project_id):
     """
     [API] 接收前端工厂生成的策略 JSON，启动批量编排任务。
@@ -256,6 +258,8 @@ def submit_factory_batch_view(request, project_id):
         "config": { ... }, // 完整策略树
         "meta": { "total_jobs": 12 }
     }
+
+    TODO: 为了直接从APIFox调试，临时豁免了csrf,在发布前记得删除
     """
     project = get_object_or_404(CreativeProject, id=project_id)
 
@@ -298,10 +302,12 @@ def submit_factory_batch_view(request, project_id):
         return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
 
+@csrf_exempt
 def debug_factory_batch_view(request, project_id):
     """
     [API] 接收前端工厂策略，模拟生成参数，并生成可下载的 JSON 文件。
     URL: /workflow/creative/project/<id>/factory/debug/
+    TODO: 为了直接从APIFox调试，临时豁免了csrf,在发布前记得删除
     """
     project = get_object_or_404(CreativeProject, id=project_id)
 

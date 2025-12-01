@@ -120,6 +120,8 @@ class NarrationFormInput(BaseFormInput):
     perspective_character: Optional[str] = None
 
     # Scope
+    # [FIX 1] 增加 scope 类型字段，接收 Factory 的 "full" / "episode_range"
+    scope: Literal["full", "episode_range", "scene_selection"] = "full"
     scope_start: int = 1
     scope_end: int = 5
 
@@ -137,8 +139,15 @@ class NarrationFormInput(BaseFormInput):
         [核心转换] 将扁平的表单数据 -> 转换为符合云端契约的嵌套对象
         在此过程中完成逻辑映射。
         """
-        # 1. 组装 Scope
-        scope = ScopeParams(type="episode_range", value=[self.scope_start, self.scope_end])
+        # 1. 组装 Scope [FIX 2] 动态逻辑
+        scope_value = None
+        if self.scope == "episode_range":
+            scope_value = [self.scope_start, self.scope_end]
+        elif self.scope == "scene_selection":
+            # 预留逻辑，目前 Factory 可能还没传具体的 scene IDs
+            pass
+
+        scope = ScopeParams(type=self.scope, value=scope_value)
 
         # 2. 组装 Character Focus
         char_list = [c.strip() for c in self.character_focus.split(",") if c.strip()]
@@ -175,9 +184,6 @@ class NarrationFormInput(BaseFormInput):
         )
 
 
-# --- Localize 和 Dubbing 暂时保留简单结构，直到获得它们的 schemas.py ---
-
-
 class LocalizeFormInput(BaseFormInput):
     target_lang: str = "en"
     speaking_rate: float = 2.5
@@ -188,6 +194,8 @@ class DubbingFormInput(BaseFormInput):
     source_script_type: str = "master"
     template_name: str = "chinese_gemini_emotional"
     voice_name: str = "Puck"
+    # [FIX 3] 默认值设为 None，以便在上层没传时使用默认逻辑，传了时使用传入值
+    # 但为了兼容旧表单，这里保留默认值，但在 Builder 里做处理
     language_code: str = "cmn-CN"
     speed: float = 1.0
 
@@ -234,6 +242,9 @@ class PayloadBuilder:
 
     @staticmethod
     def build_dubbing_payload(input_path: str, raw_config: Dict) -> Dict:
+        """
+        构建配音任务 Payload
+        """
         cfg = DubbingFormInput(**raw_config)
         service_params = {"template_name": cfg.template_name}
 
@@ -241,7 +252,7 @@ class PayloadBuilder:
             service_params.update(
                 {
                     "voice_name": cfg.voice_name,
-                    "language_code": cfg.language_code,
+                    "language_code": cfg.language_code,  # 这里直接使用 Config 中的值
                     "speaking_rate": cfg.speed,
                     "model_name": "gemini-2.5-pro-tts",
                 }
