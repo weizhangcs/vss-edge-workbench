@@ -74,8 +74,7 @@ class StorageService:
 
     def save_transcoded_video(self, local_temp_path: str, job: TranscodingJob) -> str:
         """
-        (V2.0 健壮版)
-        保存转码后的视频文件。
+        (V2.1 修复版) 保存转码后的视频文件。
         """
         asset_id = job.media.asset.id
         job_id = job.id
@@ -92,16 +91,31 @@ class StorageService:
                 return f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{s3_key}"  # noqa: E231
         else:
             # 本地存储逻辑
+            # 1. 物理路径构建 (确保包含 asset_id)
             final_dir = Path(settings.MEDIA_ROOT) / "transcoding_outputs" / str(asset_id)
             final_dir.mkdir(parents=True, exist_ok=True)
             final_path = final_dir / final_filename
 
-            # 将转码任务中记录的 output_file 的真实文件移动到这里
-            source_file_path = job.output_file.path
-            if os.path.exists(source_file_path):
-                shutil.move(source_file_path, final_path)
+            # 2. 移动文件
+            if os.path.exists(local_temp_path):
+                shutil.move(local_temp_path, final_path)
 
-            relative_path = final_path.relative_to(Path(settings.MEDIA_ROOT))
-            # [修复 2] 移除冗余的 LOCAL_MEDIA_URL_BASE，只使用 MEDIA_URL + 相对路径
-            # MEDIA_URL 已经是绝对 URL (http://127.0.0.1:9999/media/)
-            return f"{settings.MEDIA_URL}{relative_path}"
+            # [核心修复] 更新 job.output_file (FileField)
+            # 这非常重要！让 Django 知道文件存在哪里，这样 Admin 里的 output_file 链接才会对
+            # 我们存的是相对于 MEDIA_ROOT 的路径
+            relative_path_str = f"transcoding_outputs/{asset_id}/{final_filename}"
+            job.output_file.name = relative_path_str
+            job.save(update_fields=["output_file"])
+
+            # [核心修复] 返回给 output_url 的值
+            # 既然我们已经更新了 job.output_file，且有了 EdgeLocalStorage，
+            # 其实 output_url 可以直接取 job.output_file.url
+            # 但为了保持兼容性，我们这里手动返回绝对路径
+
+            # 逻辑：http://IP:9999 + /media/ + transcoding_outputs/uuid/file.mp4
+            # 使用 settings.LOCAL_MEDIA_URL_BASE (http://10.168.1.90:9999)
+            base = settings.LOCAL_MEDIA_URL_BASE.rstrip("/")
+            media_prefix = settings.MEDIA_URL.strip("/")  # 通常是 "media"
+
+            # 拼接: http://...:9999/media/transcoding_outputs/...
+            return f"{base}/{media_prefix}/{relative_path_str}"

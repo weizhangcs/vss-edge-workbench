@@ -15,6 +15,24 @@ from apps.workflow.models import AnnotationProject, TranscodingJob
 logger = logging.getLogger(__name__)
 
 
+def _build_full_url(url_path):
+    """
+    [V4.3] 动态构建完整 URL。
+    兼容 S3 (http开头) 和本地存储 (相对路径)。
+    """
+    if not url_path:
+        return None
+    # 1. 如果已经是绝对路径 (S3/OSS)，直接返回
+    if url_path.startswith("http"):
+        return url_path
+
+    # 2. 如果是相对路径，拼接 LOCAL_MEDIA_URL_BASE
+    # 这里的 settings.LOCAL_MEDIA_URL_BASE 来自 .env (例如 http://192.168.1.50:9999)
+    base = settings.LOCAL_MEDIA_URL_BASE.rstrip("/")
+    path = url_path.lstrip("/")
+    return f"{base}/{path}"
+
+
 class LabelStudioService:
     """
     一个封装了与 Label Studio API 交互逻辑的服务。
@@ -27,11 +45,10 @@ class LabelStudioService:
             # 数据库未就绪时的安全回退
             settings_obj = None
 
-            # 内部 URL 保持从 .env 读取
-        # self.BASE_URL = config('LABEL_STUDIO_PUBLIC_URL', default='http://localhost:8081')
+        # 内部 URL 保持从 .env 读取
         self.BASE_URL = config("LABEL_STUDIO_INTERNAL_URL", default="http://label-studio:8080")
 
-        # [CRITICAL FIX] 从数据库模型中获取 Token，如果数据库未就绪，则为 None
+        # 从数据库模型中获取 Token，如果数据库未就绪，则为 None
         self.ACCESS_TOKEN = getattr(settings_obj, "label_studio_access_token", None)
 
         if not self.ACCESS_TOKEN:
@@ -99,11 +116,12 @@ class LabelStudioService:
                 if not media_item.source_video:
                     continue
 
-                # --- ↓↓↓ 核心查找逻辑 ↓↓↓ ---
+                # --- ↓↓↓ 核心查找逻辑 (优化版) ↓↓↓ ---
                 video_url = None
-                # 检查项目是否设置了源编码配置
+
+                # 1. 优先尝试: 查找匹配的转码任务 (Proxy Video)
+                # 这通常是体积更小、兼容性更好的 mp4，适合标注端流畅播放
                 if project.source_encoding_profile:
-                    # 查找与此媒体文件和编码配置匹配的、已完成的转码任务
                     transcoding_job = (
                         TranscodingJob.objects.filter(
                             media=media_item,
@@ -112,16 +130,20 @@ class LabelStudioService:
                         )
                         .order_by("-modified")
                         .first()
-                    )  # 取最新的一个
+                    )
 
                     if transcoding_job and transcoding_job.output_url:
-                        video_url = transcoding_job.output_url
-                        logger.info(f"为 Media '{media_item.title}' 找到了 CDN 转码文件: {video_url}")
+                        # [关键修改] 使用动态拼接，确保拿到绝对 URL
+                        video_url = _build_full_url(transcoding_job.output_url)
+                        logger.info(f"LabelStudio Payload: 为 Media '{media_item.title}' 使用转码文件: {video_url}")
 
-                # 如果没有找到 CDN 文件，或者项目未设置编码配置，则回退到使用原始文件
+                # 2. 兜底策略: 如果没有转码文件，回退到原始文件 (Source Video)
                 if not video_url:
-                    video_url = f"{settings.LOCAL_MEDIA_URL_BASE}{media_item.source_video.url}"
-                    logger.info(f"为 Media '{media_item.title}' 使用原始文件: {video_url}")
+                    # [关键修改] 同样应用动态拼接
+                    # media_item.source_video.url 在本地模式下通常是 "/media/source_files/..."
+                    video_url = _build_full_url(media_item.source_video.url)
+                    logger.info(f"LabelStudio Payload: 为 Media '{media_item.title}' 回退使用原始文件: {video_url}")
+
                 # --- ↑↑↑ 查找逻辑结束 ↑↑↑ ---
 
                 task_payload = {"data": {"video_url": video_url}}

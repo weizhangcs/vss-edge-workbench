@@ -187,7 +187,7 @@ if FINAL_STORAGE_BACKEND == "s3":
     AWS_S3_SOURCE_SUBTITLES_PREFIX = config("AWS_S3_SOURCE_SUBTITLES_PREFIX", default="source_subtitles/")
 else:
     # 默认使用本地文件存储
-    DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+    DEFAULT_FILE_STORAGE = "apps.media_assets.services.storage_backends.EdgeLocalStorage"
 
 # ----------------------------------------------------------------------
 # V. 媒体/静态文件路径 (MEDIA/STATIC PATHS)
@@ -196,10 +196,18 @@ else:
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = BASE_DIR / "media_root"
 
-# [关键修复] STATIC_URL 和 MEDIA_URL 必须使用完整的绝对 URL，指向 Nginx (9999 端口)
+# [修改前] 依赖 LOCAL_MEDIA_URL_BASE，导致数据库存储了硬编码的绝对路径
+# STATIC_URL = f"{LOCAL_MEDIA_URL_BASE}/static/"
+# MEDIA_URL = f"{LOCAL_MEDIA_URL_BASE}/media/"
+
+# 1. 静态文件 (Static): 必须指向 Nginx (9999)，因为它不经过数据库，每次重启由 .env 动态决定，使用绝对路径安全且必要。
 STATIC_URL = f"{LOCAL_MEDIA_URL_BASE}/static/"
-# STATIC_URL = f"/static/"
-MEDIA_URL = f"{LOCAL_MEDIA_URL_BASE}/media/"
+
+# 2. 媒体文件 (Media): 保持相对路径，为了让数据库里存的是 "/media/..." 而不是带 IP 的死链。
+MEDIA_URL = "/media/"
+
+# 保留此变量供业务逻辑代码（如 Models/Services）使用，用于动态拼接完整 URL
+LOCAL_MEDIA_URL_BASE = config("LOCAL_MEDIA_URL_BASE", default="http://localhost:9999")
 
 # ----------------------------------------------------------------------
 # VI. 异步/任务队列 (CELERY/TASKS)

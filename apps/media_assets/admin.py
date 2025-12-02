@@ -77,25 +77,27 @@ class AssetAdmin(ModelAdmin):
 @admin.register(Media)
 class MediaAdmin(ModelAdmin):
     """
-    (V3 重构版)
-    资产条目管理页。现在只负责展示资产的基本信息和物理文件处理状态。
+    (V5.0 修复版)
+    同步适配 Media 模型重构，移除已废弃的 URL 字段引用。
     """
 
-    # --- 核心修改：大幅简化 list_display ---
     list_display = (
         "__str__",
-        "asset",  # 显示其所属的媒资
-        # 'processing_status' 这个字段在您的旧代码中不存在于 AssetAdmin, 我们遵循原样
+        "asset",
         "modified",
     )
-    list_filter = ("asset",)  # 按媒资筛选
+    list_filter = ("asset",)
     search_fields = ("title", "asset__title")
 
-    # --- 核心修改：简化 fieldsets，移除所有标注相关字段和按钮 ---
+    # [修复] 移除 processed_video_url 引用
     fieldsets = (
         ("基本信息", {"fields": ("asset", "title", "sequence_number")}),
-        ("输入与输出文件", {"classes": ("collapse",), "fields": ("source_video", "source_subtitle", "processed_video_url")}),
+        ("源文件", {"classes": ("collapse",), "fields": ("source_video", "source_subtitle")}),
     )
-    readonly_fields = ("processed_video_url", "source_subtitle_url")
+
+    # [修复] 移除不存在的 readonly_fields
+    # source_video 和 source_subtitle 是 FileField，Admin 默认会以链接形式显示
+    # 如果您希望它们只读，可以放进来，但不要放已删除的 xxx_url 字段
+    readonly_fields = ()
 
     # 移除所有自定义的 get_urls 和 action 方法

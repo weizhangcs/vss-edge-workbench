@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 
-from ..models import AnnotationJob, AnnotationProject, TranscodingJob
+from ..models import AnnotationJob, AnnotationProject
 from .tasks import (
     calculate_local_metrics_task,
     export_l2_output_task,
@@ -19,41 +19,6 @@ from .tasks import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def get_video_url_for_job(job: AnnotationJob) -> str:
-    """
-    (V5.0 CDN 加速版)
-    为 L1 标注任务智能查找最佳的视频 URL。
-    """
-    project = job.project
-    media_item = job.media
-
-    video_url = None
-    if project.source_encoding_profile:
-        # 1. 优先查找已完成的转码任务
-        transcoding_job = (
-            TranscodingJob.objects.filter(
-                media=media_item, profile=project.source_encoding_profile, status=TranscodingJob.STATUS.COMPLETED
-            )
-            .order_by("-modified")
-            .first()
-        )
-
-        if transcoding_job and transcoding_job.output_url:
-            video_url = transcoding_job.output_url
-
-    if not video_url:
-        # 2. 回退到使用本地源文件
-        if media_item.source_video:
-            # [修复 1] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
-            # media_item.source_video.url 现在已经是完整的绝对 URL
-            video_url = media_item.source_video.url
-        else:
-            logger.warning(f"Job {job.id} 既没有转码文件，也没有源文件，视频 URL 将为空。")
-            video_url = ""
-
-    return video_url
 
 
 def start_l1_annotation_view(request, job_id):
@@ -69,14 +34,10 @@ def start_l1_annotation_view(request, job_id):
         messages.success(request, f"字幕任务 '{job.media.title}' 状态已更新为“处理中”。")
 
     # 智能获取视频 URL (CDN 或本地)
-    video_url = get_video_url_for_job(job)
+    video_url = job.media.get_best_playback_url(encoding_profile=job.project.source_encoding_profile)
 
-    # 获取源字幕文件 URL (如果有)
-    srt_url = ""
-    if job.media.source_subtitle:
-        # [修复 2] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
-        # job.media.source_subtitle.url 现在已经是完整的绝对 URL
-        srt_url = job.media.source_subtitle.url
+    # 2. 获取源字幕绝对路径
+    srt_url = job.media.source_subtitle.url if job.media.source_subtitle else ""
 
     logger.debug(f"DEBUG URL: FINAL URLs prepared for Subeditor: video_url={video_url}, srt_url={srt_url}")
 
@@ -105,14 +66,9 @@ def revise_l1_annotation_view(request, job_id):
         messages.success(request, f"字幕任务 '{job.media.title}' 已重新打开进行修订。")
 
     # 智能获取视频 URL (CDN 或本地)
-    video_url = get_video_url_for_job(job)
+    video_url = job.media.get_best_playback_url(encoding_profile=job.project.source_encoding_profile)
 
-    # 加载*已有的* L1 .ass 文件作为源字幕
-    srt_url = ""
-    if job.l1_output_file:
-        # [修复 3] 移除冗余的 LOCAL_MEDIA_URL_BASE 前缀
-        # job.l1_output_file.url 现在已经是完整的绝对 URL
-        srt_url = job.l1_output_file.url
+    srt_url = job.l1_output_file.url if job.l1_output_file else ""
 
     job_id_param = job.id
     return_url_param = request.build_absolute_uri(

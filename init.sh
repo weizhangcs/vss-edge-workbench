@@ -1,6 +1,6 @@
 #!/bin/bash
 # init.sh: Single-entry initialization and deployment script for VSS Edge.
-# 修正版V9：最终健壮版，增加所有关键配置文件和目录的存在性检查。
+# 修正版V10：最终健壮版，修复CORS变量替换问题，集成自动端口推导。
 
 # 严格退出 on error
 set -e
@@ -81,8 +81,64 @@ sed -i.bak "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" "$EN
 echo "Please provide initial settings for the instance:"
 
 # --- Prompt for the Public Endpoint ---
-read -p "Enter the Public Endpoint URL (e.g., http://your_server_ip or https://your_domain): " PUBLIC_ENDPOINT
-sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE"
+# 1. 获取核心入口 (用户唯一需要输入的参数)
+read -p "Enter the Public Endpoint URL (e.g., http://192.168.1.X): " PUBLIC_ENDPOINT
+
+# 去除可能存在的末尾斜杠
+PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT%/}
+
+# 2. 智能提取协议和主机名
+URL_SCHEME=$(echo "$PUBLIC_ENDPOINT" | grep -oE "^https?") || URL_SCHEME="http"
+CURRENT_HOST=$(echo "$PUBLIC_ENDPOINT" | sed -E 's|https?://||' | sed -E 's|:[0-9]+.*||' | sed 's|/.*||')
+
+echo "------------------------------------------------"
+echo "Auto-configuring Service Endpoints based on: $CURRENT_HOST"
+echo "------------------------------------------------"
+
+# 3. 定义安全端口 (80XX 策略)
+PORT_SUBEDITOR=8082
+PORT_MEDIA=9999
+PORT_LS=8081
+
+# 4. 自动构建派生 URL
+SUBEDITOR_PUBLIC_URL="${URL_SCHEME}://${CURRENT_HOST}:${PORT_SUBEDITOR}"
+LOCAL_MEDIA_URL_BASE="${URL_SCHEME}://${CURRENT_HOST}:${PORT_MEDIA}"
+LABEL_STUDIO_PUBLIC_URL="${URL_SCHEME}://${CURRENT_HOST}:${PORT_LS}"
+
+echo "-> Django Admin:      ${PUBLIC_ENDPOINT}:8000"
+echo "-> Subeditor:         ${SUBEDITOR_PUBLIC_URL}"
+echo "-> Local Media:       ${LOCAL_MEDIA_URL_BASE}"
+echo "-> Label Studio:      ${LABEL_STUDIO_PUBLIC_URL}"
+
+# 5. 写入 .env
+# 更新/写入 PUBLIC_ENDPOINT
+if grep -q "PUBLIC_ENDPOINT=" "$ENV_FILE"; then
+    sed -i.bak "s|PUBLIC_ENDPOINT=.*|PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}|" "$ENV_FILE"
+else
+    echo "PUBLIC_ENDPOINT=${PUBLIC_ENDPOINT}" >> "$ENV_FILE"
+fi
+
+# 写入 SUBEDITOR 配置
+sed -i.bak '/^SUBEDITOR_HOST_PORT=/d' "$ENV_FILE"
+sed -i.bak '/^SUBEDITOR_PUBLIC_URL=/d' "$ENV_FILE"
+echo "SUBEDITOR_HOST_PORT=${PORT_SUBEDITOR}" >> "$ENV_FILE"
+echo "SUBEDITOR_PUBLIC_URL=${SUBEDITOR_PUBLIC_URL}" >> "$ENV_FILE"
+
+# 写入 LOCAL_MEDIA_URL_BASE
+sed -i.bak '/^LOCAL_MEDIA_URL_BASE=/d' "$ENV_FILE"
+echo "LOCAL_MEDIA_URL_BASE=${LOCAL_MEDIA_URL_BASE}" >> "$ENV_FILE"
+
+# 写入 LABEL_STUDIO_PUBLIC_URL
+sed -i.bak '/^LABEL_STUDIO_PUBLIC_URL=/d' "$ENV_FILE"
+echo "LABEL_STUDIO_PUBLIC_URL=${LABEL_STUDIO_PUBLIC_URL}" >> "$ENV_FILE"
+
+# [核心修复] 写入 CORS_ALLOWED_ORIGINS
+# V9 缺失的部分！必须补上！
+sed -i.bak '/^CORS_ALLOWED_ORIGINS=/d' "$ENV_FILE"
+echo "CORS_ALLOWED_ORIGINS=${SUBEDITOR_PUBLIC_URL},${LABEL_STUDIO_PUBLIC_URL}" >> "$ENV_FILE"
+
+# 清理备份文件
+rm -f "${ENV_FILE}.bak"
 
 # --- Other prompts ---
 read -p "Enter the initial Django superuser email: " DJANGO_SUPERUSER_EMAIL
@@ -98,11 +154,10 @@ read -p "Cloud Instance ID (Your Edge unique ID): " CLOUD_INSTANCE_ID
 read -p "Cloud API Key: " CLOUD_API_KEY
 echo
 
-# [配置移至 DB]: LABEL_STUDIO_ACCESS_TOKEN 移至 DB，在此处将其值设为空
+# [配置移至 DB]: LABEL_STUDIO_ACCESS_TOKEN 移至 DB
 LABEL_STUDIO_ACCESS_TOKEN=""
 
-# Improved: Suggest default based on Public Endpoint
-HOSTNAME=$(echo "$PUBLIC_ENDPOINT" | sed -e 's|http://||' -e 's|https://||' -e 's|:[0-9]*$||')
+HOSTNAME=$CURRENT_HOST
 DEFAULT_ALLOWED_HOSTS="localhost,127.0.0.1,${HOSTNAME}"
 read -p "Enter comma-separated Allowed Hosts [${DEFAULT_ALLOWED_HOSTS}]: " DJANGO_ALLOWED_HOSTS
 DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS:-$DEFAULT_ALLOWED_HOSTS}
@@ -113,59 +168,46 @@ sed -i.bak "s|DJANGO_SUPERUSER_PASSWORD=.*|DJANGO_SUPERUSER_PASSWORD=\"${DJANGO_
 sed -i.bak "s|LABEL_STUDIO_ACCESS_TOKEN=.*|LABEL_STUDIO_ACCESS_TOKEN=\"${LABEL_STUDIO_ACCESS_TOKEN}\"|" "$ENV_FILE"
 sed -i.bak "s|DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=\"${DJANGO_ALLOWED_HOSTS}\"|" "$ENV_FILE"
 
-rm -f "${ENV_FILE}.bak"
 chmod 600 "$ENV_FILE"
 
 echo "Creating necessary directories..."
-# 创建 volumes 和 configs/nginx 目录
 for dir in "${REQUIRED_DIRS[@]}"; do
     mkdir -p "$dir"
-    chmod -R 777 "$dir" # 确保挂载目录权限开放
+    chmod -R 777 "$dir"
 done
 
 echo "✅ Configuration successful. Starting deployment..."
 
-# --- Phase 2: Deployment and Application Execution (基于声明式架构) ---
-
-# Define file configuration
+# --- Phase 2: Deployment ---
 COMPOSE_FILES="-f $BASE_COMPOSE_FILE -f $DEPLOY_COMPOSE_FILE"
 WEB_SERVICE="web"
 DB_SERVICE="db"
-PROJECT_NAME="vss-edge" # <-- 锁定项目名称
-COLLECTSTATIC_LOG_FILE="exec_tmp.log" # 用于捕获 exec 过程中的临时日志
+PROJECT_NAME="vss-edge"
+COLLECTSTATIC_LOG_FILE="exec_tmp.log"
 
-# 1. 启动所有服务 (Launch all services)
 echo "1. Bringing up all Docker services..."
-# Nginx 配置均通过卷挂载解决，无需特殊处理。
 docker compose -p $PROJECT_NAME $COMPOSE_FILES up -d
 
-# Check if services started successfully
 if [ $? -ne 0 ]; then
-    echo "❌ 错误: Docker Compose 启动服务失败。请检查 compose 文件和 Docker 状态。"
+    echo "❌ 错误: Docker Compose 启动服务失败。"
     exit 1
 fi
 
-# 1.1 复制配置文件到运行中的容器 (已清除)
-echo "1.1 配置文件已通过卷挂载实现，跳过运行时配置操作。"
+echo "1.1 配置文件已通过卷挂载实现。"
+echo "1.2 Nginx 服务已通过卷挂载加载配置。"
 
-# 1.2 重启 Nginx 服务以加载新配置... (已清除)
-echo "1.2 Nginx 服务已通过卷挂载加载配置，跳过运行时重启操作。"
-
-# 2. 等待数据库就绪 (强制健康检查)
 echo "2. 等待服务就绪..."
-sleep 5 # 初始等待
+sleep 5
 MAX_RETRIES=10
 RETRY_COUNT=0
 
 echo "2.1 正在等待 PostgreSQL 数据库容器 ($DB_SERVICE) 就绪..."
 until [ $RETRY_COUNT -ge $MAX_RETRIES ]
 do
-    # [FIXED] 此处必须添加 $COMPOSE_FILES
     if docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $DB_SERVICE pg_isready -q; then
         echo "✅ 数据库已就绪！"
         break
     fi
-
     RETRY_COUNT=$((RETRY_COUNT+1))
     echo "   数据库未就绪，重试 $RETRY_COUNT/$MAX_RETRIES..."
     sleep 5
@@ -175,37 +217,26 @@ if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     echo "❌ 错误: 数据库未在规定时间内就绪，终止部署。"
     exit 1
 fi
-# --- 数据库健康检查结束 ---
 
-# 3. 执行数据库迁移 (Migrate)
 echo "3. 执行数据库迁移 (Migrate)..."
-# [FIXED] 此处必须添加 $COMPOSE_FILES
 if ! docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py migrate --noinput > "$COLLECTSTATIC_LOG_FILE" 2>&1; then
-    echo "❌ 错误: 数据库迁移失败！请查看日志 $GLOBAL_LOG_FILE 中引用的 $COLLECTSTATIC_LOG_FILE。"
+    echo "❌ 错误: 数据库迁移失败！"
     cat "$COLLECTSTATIC_LOG_FILE"
     exit 1
 fi
 echo "✅ 迁移成功完成。"
 
-# --- [步骤 3.1: 自动化获取 Legacy API Token (简洁修复版)] ---
 echo "3.1 正在等待 Label Studio 启动并尝试获取 Legacy API Token..."
-LS_SERVICE_NAME="label_studio"
+# [核心修复] 服务名修正 label_studio -> label-studio
+LS_SERVICE_NAME="label-studio"
 MAX_LS_RETRIES=10
 LS_RETRY_COUNT=0
-# [修正] 直接使用 LABEL_STUDIO_ACCESS_TOKEN 变量
 LABEL_STUDIO_ACCESS_TOKEN=""
 
-# 循环条件：当 LABEL_STUDIO_ACCESS_TOKEN 非空时跳出
 until [ -n "$LABEL_STUDIO_ACCESS_TOKEN" ] || [ $LS_RETRY_COUNT -ge $MAX_LS_RETRIES ]
 do
     sleep 5
-
-    # 步骤 1: 尝试执行 'label-studio user' 命令，并使用 '|| true' 压制 exec 的退出代码
-    # 注意：我们必须使用一个临时的 SHELL 变量来接收命令输出，防止解析失败导致主变量污染
-    # 注意：容器命名 label_studio 命令行 label-studio
     LS_OUTPUT=$(docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $LS_SERVICE_NAME sh -c "label-studio user --username \"$DJANGO_SUPERUSER_EMAIL\"" 2>/dev/null | tail -n 1) || true
-
-    # 步骤 2: [核心修正] 将解析结果直接赋值给主变量
     TEMP_TOKEN_RESULT=$(echo "$LS_OUTPUT" | sed -n "s/.*'token': '\([^']*\)'.*/\1/p")
     LABEL_STUDIO_ACCESS_TOKEN=${TEMP_TOKEN_RESULT}
 
@@ -216,56 +247,39 @@ do
 done
 
 if [ -z "$LABEL_STUDIO_ACCESS_TOKEN" ]; then
-    echo "❌ 错误: 无法在规定时间内获取 Label Studio API Token。将使用 'Manual_Setup_Required' 占位符。"
+    echo "❌ 错误: 无法获取 Label Studio API Token。"
     LABEL_STUDIO_ACCESS_TOKEN="Manual_Setup_Required"
 fi
 
 if [ "$LABEL_STUDIO_ACCESS_TOKEN" != "Manual_SETUP_REQUIRED" ]; then
-    echo "✅ 成功获取 Legacy API Token (前10位): ${LABEL_STUDIO_ACCESS_TOKEN:0:10}..."
+    echo "✅ 成功获取 Legacy API Token: ${LABEL_STUDIO_ACCESS_TOKEN:0:10}..."
 fi
-# --- [步骤 3.1 结束] ---
 
-# 4. 执行自动化配置 (setup_instance)
 echo "4. 执行自动化配置 (setup_instance)..."
-# [核心修改] 将 Token 作为命令行参数 --ls-token 传递
-
-# 注意：我们使用 LABEL_STUDIO_ACCESS_TOKEN 变量（您之前修正的变量名）
 docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py setup_instance \
     --ls-token="$LABEL_STUDIO_ACCESS_TOKEN" \
     --cloud-url="$CLOUD_API_BASE_URL" \
     --cloud-id="$CLOUD_INSTANCE_ID" \
     --cloud-key="$CLOUD_API_KEY" > "$COLLECTSTATIC_LOG_FILE" 2>&1
 SETUP_INSTANCE_EXIT_CODE=$?
-
-# 无论成功或失败，先显示 DEBUG 日志
 cat "$COLLECTSTATIC_LOG_FILE"
 
 if [ $SETUP_INSTANCE_EXIT_CODE -ne 0 ]; then
-    # 失败路径
-    echo "❌ 错误: setup_instance 失败！请查看上方的 CRASH ERROR 日志。"
+    echo "❌ 错误: setup_instance 失败！"
     exit 1
 fi
-# 成功路径
 echo "✅ 自动化配置成功完成。"
 
-
-# 5. 自动收集静态文件 (Collect static files for Nginx)
 echo "5. 收集静态文件 (collectstatic)..."
-# [FIXED] 此处必须添加 $COMPOSE_FILES
 if ! docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py collectstatic --noinput > "$COLLECTSTATIC_LOG_FILE" 2>&1; then
-    echo "❌ 错误: collectstatic 失败！请查看日志 $GLOBAL_LOG_FILE 中引用的 $COLLECTSTATIC_LOG_FILE。"
+    echo "❌ 错误: collectstatic 失败！"
     cat "$COLLECTSTATIC_LOG_FILE"
     exit 1
 fi
 echo "✅ 静态文件收集成功完成。"
-# 清理临时日志文件
 rm "$COLLECTSTATIC_LOG_FILE" 2>/dev/null
-
 
 echo "================================================"
 echo "--- ✅ 部署完成 ---"
 echo "日志文件已保存到 $GLOBAL_LOG_FILE"
-echo "下一步操作 (首次安装):"
-echo "1. 访问 Django Admin 页面 (例如: http://${HOSTNAME}:8000/admin/)."
-echo "2. 导航至 [系统设置] -> [集成设置] 页面，配置 Label Studio Token。"
 echo "================================================"

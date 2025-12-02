@@ -15,7 +15,7 @@ services:
       timeout: 5s
     env_file:
       - .env
-    environment: # <-- 新增：设置时区
+    environment:
       - TZ=Asia/Shanghai
 
   redis:
@@ -29,7 +29,7 @@ services:
       timeout: 3s
     expose:
       - "6379"
-    environment: # <-- 新增：设置时区
+    environment:
       - TZ=Asia/Shanghai
 
   web:
@@ -45,7 +45,7 @@ services:
     volumes:
       - ./media_root:/app/media_root
       - staticfiles_volume:/app/staticfiles
-    environment: # <-- 新增：设置时区
+    environment:
       - TZ=Asia/Shanghai
 
   worker:
@@ -57,7 +57,7 @@ services:
       - web
     volumes:
       - ./media_root:/app/media_root
-    environment: # <-- 新增：设置时区
+    environment:
       - TZ=Asia/Shanghai
 
   nginx_media_server:
@@ -65,18 +65,20 @@ services:
     ports:
       - "9999:80"
     volumes:
-      - ./configs/nginx/vss-media-server.conf:/etc/nginx/conf.d/default.conf:ro
-      - staticfiles_volume:/var/www/staticfiles:ro
       - ./media_root:/var/www/media_root:ro
-    environment: # <-- 新增：设置时区
+      - staticfiles_volume:/var/www/staticfiles:ro
+      - ./configs/nginx/vss-media-server.conf:/etc/nginx/conf.d/default.conf:ro
+    environment:
       - TZ=Asia/Shanghai
 
   subeditor:
+    # 1. 使用变量 SUBEDITOR_HOST_PORT
+    # 2. 默认值设为 8082 (避开Windows/Mac常用端口)
     ports:
-      - "3000:3000"
+      - "${SUBEDITOR_HOST_PORT:-8082}:3000"
     env_file:
       - .env
-    environment: # <-- 新增：设置时区
+    environment:
       - TZ=Asia/Shanghai
 
   label-studio:

@@ -352,7 +352,17 @@ class AnnotationProjectAdmin(ModelAdmin):
         """
         覆盖默认的 change_view。
         当用户访问 .../change/ URL 时，自动将他们定向到 L1 Tab 视图。
+        [UX 优化] 在修改页面隐藏所有 "保存" 系列按钮。
+        原因：此页面的业务流转完全由 Tab 内部的 Action 按钮驱动，原生保存按钮会误导用户。
+        保留：删除按钮 (由 has_delete_permission 控制)。
         """
+        extra_context = extra_context or {}
+
+        # 核心：隐藏三个保存相关按钮
+        extra_context["show_save"] = False
+        extra_context["show_save_and_continue"] = False
+        extra_context["show_save_and_add_another"] = False
+
         return self.tab_l1_view(request, object_id, extra_context)
 
     # --- 自定义 Tab 视图 (V4.3 架构) ---

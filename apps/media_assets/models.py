@@ -1,29 +1,26 @@
 # 文件路径: apps/media_assets/models.py
 
+import logging
 import uuid
 
+from django.conf import settings
 from django.db import models
 from model_utils.models import TimeStampedModel
 
+logger = logging.getLogger(__name__)
 
-# --- 核心新增：定义动态路径函数 ---
+
+# --- 定义动态路径函数 ---
 def get_media_upload_path(instance, filename):
-    """为上传的媒体文件（视频）生成动态路径"""
     return f"source_files/{instance.asset.id}/media/{filename}"
 
 
 def get_subtitle_upload_path(instance, filename):
-    """为上传的字幕文件生成动态路径"""
     return f"source_files/{instance.asset.id}/subtitles/{filename}"
 
 
-# --- 核心修改：让 Asset 继承 TimeStampedModel ---
+# --- Asset 模型 (保持不变) ---
 class Asset(TimeStampedModel):
-    """
-    (V4.2 终极纯净版)
-    顶层媒资实体，代表一个完整的逻辑作品 (Asset)。
-    """
-
     ASSET_TYPE_CHOICES = (("short_drama", "短剧"), ("movie", "电影"))
     COPYRIGHT_STATUS_CHOICES = (("pending", "待定"), ("cleared", "已授权"), ("owned", "自有版权"), ("restricted", "受限"))
     LANGUAGE_CHOICES = (("zh-CN", "中文 (简体)"), ("en-US", "英语 (美国)"))
@@ -50,12 +47,12 @@ class Asset(TimeStampedModel):
         ordering = ["-created"]
 
 
-# --- 核心修改：让 Media 继承 TimeStampedModel ---
+# --- Media 模型 (V5.0 重构版) ---
 class Media(TimeStampedModel):
     """
-    (V4.2 终极纯净版)
-    媒体文件实体，代表组成 Asset 的具体物理文件 (Media)。
-    这是一个纯粹的静态模型。
+    (V5.0 终极纯净版)
+    媒体文件实体，仅作为“唯一真理源” (Source of Truth)。
+    移除了所有冗余 URL 字段，增加了业务逻辑方法。
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -63,16 +60,73 @@ class Media(TimeStampedModel):
     title = models.CharField(max_length=255, verbose_name="媒体标题")
     sequence_number = models.PositiveIntegerField(default=1, verbose_name="序号")
 
+    # 源文件 (Master) - 配合 EdgeLocalStorage 自动生成指向 9999 的绝对 URL
     source_video = models.FileField(upload_to=get_media_upload_path, blank=True, null=True, verbose_name="源视频文件")
     source_subtitle = models.FileField(
         upload_to=get_subtitle_upload_path, blank=True, null=True, verbose_name="源字幕文件 (SRT)"
     )
 
-    processed_video_url = models.URLField(max_length=1024, blank=True, null=True, verbose_name="处理后视频URL (CDN)")
-    source_subtitle_url = models.URLField(max_length=1024, blank=True, null=True, verbose_name="源字幕文件URL (CDN/Public)")
+    # [已删除] processed_video_url 及相关 property
+    # [已删除] source_subtitle_url 及相关 property
 
     def __str__(self):
         return f"{self.asset.title} - {self.sequence_number:02d} - {self.title}"  # noqa: E231
+
+    def get_best_playback_url(self, encoding_profile=None):
+        """
+        [业务逻辑] 智能获取最佳播放地址 (绝对路径)。
+        策略:
+        1. 如果提供了 encoding_profile，优先查找匹配且已完成的 TranscodingJob。
+        2. 如果找不到转码结果，回退到 source_video。
+        3. 强制确保返回的是指向 Nginx (9999) 的绝对 URL。
+        """
+
+        target_url = None
+
+        # 1. 尝试查找转码任务
+        if encoding_profile:
+            try:
+                # [延迟导入] 避免 Circular Import (Media <-> TranscodingJob)
+                from apps.workflow.transcoding.projects import TranscodingJob
+
+                job = (
+                    TranscodingJob.objects.filter(
+                        media=self, profile=encoding_profile, status=TranscodingJob.STATUS.COMPLETED
+                    )
+                    .order_by("-modified")
+                    .first()
+                )
+
+                if job and job.output_url:
+                    target_url = job.output_url
+            except Exception as e:
+                logger.warning(f"查找转码任务失败: {e}")
+
+        # 2. 兜底策略：使用源文件
+        if not target_url and self.source_video:
+            # EdgeLocalStorage 已经保证了这里是 http://... 的绝对路径
+            # 但为了双重保险 (防止有人改回 FileSystemStorage)，下方会统一处理
+            target_url = self.source_video.url
+
+        # 3. 统一格式化为绝对路径 (Private Helper Logic)
+        return self.ensure_absolute_url(target_url)
+
+    def ensure_absolute_url(self, url_path):
+        """
+        确保 URL 是绝对路径 (http/https 开头)。
+        如果是相对路径，则拼接 settings.LOCAL_MEDIA_URL_BASE。
+        """
+        if not url_path:
+            return ""
+
+        url_str = str(url_path)
+        if url_str.startswith(("http://", "https://")):
+            return url_str
+
+        # 拼接逻辑
+        base = settings.LOCAL_MEDIA_URL_BASE.rstrip("/")
+        path = url_str.lstrip("/")
+        return f"{base}/{path}"
 
     class Meta:
         verbose_name = "媒体文件 (Media)"
