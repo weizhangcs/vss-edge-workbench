@@ -9,6 +9,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 
 from apps.media_assets.models import Asset
+from apps.workflow.annotation.services.label_studio import LabelStudioService
 from apps.workflow.models import AnnotationJob, AnnotationProject
 
 logger = logging.getLogger(__name__)
@@ -117,9 +118,7 @@ class ProjectPortableService:
     @transaction.atomic
     def import_annotation_project(zip_bytes: bytes, target_asset: Asset):
         """
-        从 ZIP 导入项目并挂载到指定的 Asset。
-        :param zip_bytes: ZIP 文件二进制流
-        :param target_asset: 用户明确指定的 Asset 对象 (覆盖 manifest 中的记录)
+        [V5.0 修复版] 从 ZIP 导入项目，并同步恢复 Label Studio 的工程状态。
         """
         zip_buffer = io.BytesIO(zip_bytes)
 
@@ -130,24 +129,22 @@ class ProjectPortableService:
             manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
             proj_data = manifest["project"]
 
-            # [核心修改] 不再从 manifest 查找 Asset，直接使用传入的 target_asset
-            # (旧逻辑已删除：try Asset.objects.get(id=proj_data.get("asset_id"))...)
-
             logger.info(
                 f"Importing project '{proj_data['name']}' into Asset: {target_asset.title} (ID: {target_asset.id})"
             )
 
-            # 1. 创建项目骨架
+            # 1. 创建 Django 项目骨架
             new_project = AnnotationProject.objects.create(
                 name=f"{proj_data['name']} (Restored)",
                 description=proj_data.get("description", ""),
-                asset=target_asset,  # 使用用户选择的 Asset
-                status="COMPLETED",  # 直接完成，跳过流程状态
-                label_studio_project_id=proj_data.get("label_studio_project_id"),
+                asset=target_asset,
+                status="COMPLETED",
+                # 先留空 LS ID，稍后创建
+                label_studio_project_id=None,
                 source_encoding_profile_id=proj_data.get("source_encoding_profile_id"),
             )
 
-            # 2. 恢复项目级文件 (Blueprints, Reports)
+            # 2. 恢复文件 (包括 label_studio_export_file)
             files_map = manifest.get("files_map", {})
             for field_name, zip_path in files_map.items():
                 if zip_path in zf.namelist():
@@ -160,38 +157,111 @@ class ProjectPortableService:
 
             new_project.save()
 
-            # 3. 恢复 Jobs (标注子任务)
-            # 建立目标 Asset 下的 Media 映射表: sequence_number -> media_object
-            media_map = {m.sequence_number: m for m in target_asset.medias.all()}
+            # 3. [关键步骤] 在 Label Studio 中重建项目
+            # 这一步会创建 LS Project，并为 Asset 下的所有 Media 创建 Tasks
+            ls_service = LabelStudioService()
+            success, msg, ls_proj_id, task_mapping = ls_service.create_project_for_asset(new_project)
 
-            restored_jobs_count = 0
+            if success:
+                logger.info(f"Label Studio Project restored: ID {ls_proj_id}")
+                new_project.label_studio_project_id = ls_proj_id
+                new_project.save()
+            else:
+                logger.error(f"Failed to restore Label Studio project: {msg}")
+                # 即使失败也继续，至少保留 Django 记录
+
+            # 4. 恢复 Jobs 并关联新的 Task ID
+            media_map = {m.sequence_number: m for m in target_asset.medias.all()}
+            # 建立 Media ID -> Job 的临时映射，用于后续注入注记
+            media_id_to_job_map = {}
+
             for job_data in manifest["jobs"]:
                 seq = job_data["media_sequence"]
                 target_media = media_map.get(seq)
 
-                # [宽松容错] 如果目标 Asset 下找不到对应的 ep01/ep02，则跳过该 Job，不报错
                 if not target_media:
-                    logger.warning(f"Import Skipped: Media sequence {seq} not in target Asset '{target_asset.title}'.")
                     continue
+
+                # 尝试从 task_mapping 中找到新创建的 Task ID
+                new_task_id = task_mapping.get(target_media.id) if success else None
 
                 new_job = AnnotationJob.objects.create(
                     project=new_project,
                     media=target_media,
                     job_type=job_data["job_type"],
                     status="COMPLETED",
-                    label_studio_task_id=job_data.get("label_studio_task_id"),
+                    label_studio_task_id=new_task_id,  # 关联新 ID
                 )
 
-                # 恢复 Job 文件 (.ass)
+                media_id_to_job_map[target_media.id] = new_job
+
+                # 恢复 Job 文件
                 job_files_map = job_data.get("files_map", {})
                 for field_name, zip_path in job_files_map.items():
                     if zip_path in zf.namelist():
                         file_content = zf.read(zip_path)
                         original_name = Path(zip_path).name
                         getattr(new_job, field_name).save(original_name, ContentFile(file_content), save=False)
-
                 new_job.save()
-                restored_jobs_count += 1
 
-            logger.info(f"Project imported successfully with {restored_jobs_count} jobs restored.")
+            # 5. [关键修复] 回灌历史标注数据 (Annotations)
+            # 放弃文件名匹配，改用 "旧ID -> 序号 -> 新ID" 的可靠映射
+            if success and new_project.label_studio_export_file:
+                try:
+                    logger.info("Restoring annotations from export file...")
+                    new_project.label_studio_export_file.open("r")
+                    export_json = json.load(new_project.label_studio_export_file)
+
+                    # 5.1 构建映射表：旧 LS Task ID -> Media Sequence
+                    # 数据来源：manifest['jobs']
+                    old_task_id_to_seq = {}
+                    for j in manifest["jobs"]:
+                        if j.get("label_studio_task_id"):
+                            old_task_id_to_seq[j["label_studio_task_id"]] = j["media_sequence"]
+
+                    # 5.2 构建映射表：Media Sequence -> 新 LS Task ID
+                    # 数据来源：target_asset (Media) + task_mapping (API返回)
+                    seq_to_new_task_id = {}
+                    for m in target_asset.medias.all():
+                        if m.id in task_mapping:
+                            seq_to_new_task_id[m.sequence_number] = task_mapping[m.id]
+
+                    # 5.3 遍历导出文件，通过“序号”这座桥梁进行匹配
+                    restore_count = 0
+                    for item in export_json:
+                        # item['id'] 是旧环境的 LS Task ID
+                        old_id = item.get("id")
+
+                        # 1. 找序号
+                        sequence = old_task_id_to_seq.get(old_id)
+                        if sequence is None:
+                            # 尝试兼容性回退：有些版本的 LS 导出可能不包含 ID，或者 ID 变了
+                            # 此时才不得已使用 filenames 匹配 (作为兜底，虽然不一定准)
+                            logger.warning(f"Annotation Record {old_id}: No matching sequence in manifest. Skipping.")
+                            continue
+
+                        # 2. 找新任务 ID
+                        new_task_id = seq_to_new_task_id.get(sequence)
+                        if not new_task_id:
+                            logger.warning(
+                                f"Annotation Record {old_id} (Seq {sequence}): No new task created. Skipping."
+                            )
+                            continue
+
+                        # 3. 注入数据
+                        annotations = item.get("annotations", [])
+                        if not annotations:
+                            # 有些导出可能是 'predictions' 或者根级别就是 result
+                            # 这里假设是标准的 LS JSON 格式
+                            continue
+
+                        for annotation in annotations:
+                            if ls_service.import_annotation_to_task(new_task_id, annotation):
+                                restore_count += 1
+
+                    logger.info(f"Successfully restored {restore_count} annotation records.")
+
+                except Exception as e:
+                    logger.warning(f"Failed to restore annotations content: {e}", exc_info=True)
+
             return new_project

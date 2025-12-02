@@ -185,3 +185,30 @@ class LabelStudioService:
         except Exception as e:
             logger.error(f"导出 LS 数据时发生未知错误: {e}", exc_info=True)
             return False, f"Unknown error during export: {e}", None
+
+    def import_annotation_to_task(self, task_id: int, annotation_data: dict) -> bool:
+        """
+        [V5.1 新增] 将单个注记数据注入到指定的 Task 中。
+        用于项目导入时的状态恢复。
+        """
+        try:
+            url = f"{self.BASE_URL}/api/tasks/{task_id}/annotations"
+
+            # 清洗数据：移除 ID 和元数据，让 LS 生成新的
+            payload = {
+                "result": annotation_data.get("result", []),
+                "was_cancelled": annotation_data.get("was_cancelled", False),
+                "ground_truth": annotation_data.get("ground_truth", False),
+                # 可以选择性保留 lead_time 等统计数据
+                "lead_time": annotation_data.get("lead_time", 0),
+            }
+
+            response = requests.post(url, json=payload, headers=self.headers)
+            if response.status_code == 201:
+                return True
+            else:
+                logger.warning(f"导入注记失败 (Task {task_id}): {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"导入注记异常: {e}")
+            return False
