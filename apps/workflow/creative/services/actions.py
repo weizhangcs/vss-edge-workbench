@@ -9,7 +9,7 @@ from django.core.files.base import ContentFile
 
 from apps.workflow.common.baseJob import BaseJob
 from apps.workflow.creative.jobs import CreativeJob
-from apps.workflow.creative.projects import CreativeProject
+from apps.workflow.creative.models import CreativeProject
 from apps.workflow.inference.services.cloud_api import CloudApiService
 from visify_ssw import settings
 

@@ -1,0 +1,178 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls static unfold %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    /* 隐藏底部按钮 */
+    .submit-row { display: none !important; }
+
+    /* 进度条动画条纹 */
+    @keyframes progress-stripes {
+        from { background-position: 1rem 0; }
+        to { background-position: 0 0; }
+    }
+    .animate-stripes {
+        background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+        background-size: 1rem 1rem;
+        animation: progress-stripes 1s linear infinite;
+    }
+</style>
+
+{% if is_running %}
+<script>
+    setTimeout(function() {
+        window.location.reload();
+    }, 30000); // 3秒刷新一次
+</script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <span class="material-symbols-outlined text-blue-600">monitor_heart</span>
+                生产监视器
+                {% if is_running %}
+                <span class="flex h-3 w-3 relative">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                <span class="text-xs text-gray-400 font-normal ml-1">Live Updating...</span>
+                {% endif %}
+            </h2>
+
+            <div class="flex gap-2">
+                <span class="px-3 py-1 rounded-full text-sm font-bold tracking-wide
+                    {% if project.status == 'FAILED' %}bg-red-100 text-red-700
+                    {% elif project.status == 'COMPLETED' %}bg-green-100 text-green-700
+                    {% else %}bg-blue-50 text-blue-600{% endif %}">
+                    {{ project.get_status_display }}
+                </span>
+
+                {% if not is_running %}
+                <a href="{% url 'admin:workflow_creativeproject_change' project.id %}" class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+                    <span class="material-symbols-outlined text-xs">settings</span>
+                    重新配置
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="relative w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+            <div class="h-4 rounded-full transition-all duration-500 ease-out flex items-center justify-end pr-2
+                        {% if project.status == 'FAILED' %}bg-red-500{% else %}bg-blue-600 animate-stripes{% endif %}"
+                 style="width: {{ progress_percent }}%">
+                <span class="text-[10px] text-white font-bold">{{ progress_percent }}%</span>
+            </div>
+        </div>
+        <div class="flex justify-between text-xs text-gray-400 mt-2 font-mono">
+            <span>START</span>
+            <span>NARRATION</span>
+            <span>LOCALIZE</span>
+            <span>AUDIO</span>
+            <span>EDITING</span>
+            <span>SYNTHESIS</span>
+            <span>DONE</span>
+        </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+        <h3 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined">script</span>
+            {% if has_translation %}双语脚本对照{% else %}叙事脚本{% endif %}
+        </h3>
+
+        <div class="bg-gray-50 rounded border border-gray-200 h-96 overflow-y-auto custom-scrollbar p-4">
+            {% if script_lines %}
+                <div class="grid gap-4 font-mono text-sm leading-relaxed
+                            {% if has_translation %}grid-cols-2{% else %}grid-cols-1{% endif %}">
+
+                    {% if has_translation %}
+                    <div class="text-xs text-gray-400 font-bold uppercase tracking-wider border-b pb-2 mb-2">Source (原文)</div>
+                    <div class="text-xs text-gray-400 font-bold uppercase tracking-wider border-b pb-2 mb-2">Target (译文)</div>
+                    {% endif %}
+
+                    {% for line in script_lines %}
+                        {% if has_translation %}
+                            <div class="text-gray-500 pr-4 border-r border-gray-100 hover:bg-gray-100 p-2 rounded transition-colors">
+                                {{ line.source|linebreaksbr }}
+                            </div>
+                            <div class="text-gray-800 pl-2 hover:bg-white p-2 rounded transition-colors shadow-sm">
+                                {{ line.target|linebreaksbr }}
+                            </div>
+                        {% else %}
+                            <div class="text-gray-700 p-1 hover:bg-gray-100 rounded">
+                                {{ line.source|linebreaksbr }}
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center text-gray-400 py-10">暂无内容</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1 bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex flex-col">
+            <h3 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                <span class="material-symbols-outlined">headphones</span> 配音片段
+            </h3>
+
+            {% if audio_list %}
+                <div class="space-y-3 overflow-y-auto flex-1 custom-scrollbar" style="max-height: 300px;">
+                    {% for audio in audio_list %}
+                    <div class="bg-gray-50 p-3 rounded border border-gray-100 hover:border-blue-200 transition-colors">
+                        <div class="text-xs text-gray-500 mb-2 truncate" title="{{ audio.name }}">
+                            {{ audio.name }}
+                        </div>
+                        <audio controls class="w-full h-8 block">
+                            <source src="{{ audio.url }}" type="audio/mpeg">
+                        </audio>
+                    </div>
+                    {% endfor %}
+                </div>
+{% else %}
+                <div class="flex-1 flex items-center justify-center text-gray-400 text-sm bg-gray-50 rounded border border-dashed border-gray-200 min-h-[150px]">
+                    {% if 'AUDIO' in project.status or 'LOCAL' in project.status %}
+                        <span class="animate-pulse">正在生成配音...</span>
+                    {% elif 'EDIT' in project.status or 'SYNTHESIS' in project.status or 'COMPLETED' in project.status %}
+                        <span>暂无配音数据</span>
+                    {% else %}
+                        等待上游任务...
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                <span class="material-symbols-outlined">movie</span> 最终成片
+            </h3>
+
+            <div class="aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center relative group">
+                {% if project.final_video_file %}
+                    <video controls class="w-full h-full object-contain">
+                        <source src="{{ project.final_video_file.url }}" type="video/mp4">
+                        您的浏览器不支持 Video 标签。
+                    </video>
+                {% else %}
+                    <div class="text-gray-500 flex flex-col items-center">
+                        {% if 'SYNTHESIS' in project.status %}
+                            <span class="material-symbols-outlined text-5xl animate-spin mb-2 text-blue-500">autorenew</span>
+                            <span>视频合成渲染中...</span>
+                        {% else %}
+                            <span class="material-symbols-outlined text-5xl mb-2 opacity-20">theaters</span>
+                            <span class="opacity-50">等待合成任务启动</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

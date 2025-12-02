@@ -6,7 +6,7 @@ from model_utils import Choices
 
 from apps.workflow.common.baseJob import BaseJob
 
-from .projects import CreativeProject
+from .models import CreativeProject
 
 
 class CreativeJob(BaseJob):

@@ -6,7 +6,7 @@ from .annotation.jobs import AnnotationJob
 # --- 从 annotation 子包导入 ---
 from .annotation.projects import AnnotationProject
 from .creative.jobs import CreativeJob
-from .creative.projects import CreativeProject
+from .creative.models import CreativeProject
 
 # --- 从新的 delivery 子包导入 ---
 from .delivery.jobs import DeliveryJob

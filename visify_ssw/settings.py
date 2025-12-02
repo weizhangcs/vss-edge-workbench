@@ -336,20 +336,9 @@ UNFOLD = {
                 "separator": True,
                 "items": [
                     {
-                        "title": "精细化创作 (单管道)",
+                        "title": "影视解说二创",
                         "icon": "send",
                         "link": reverse_lazy("admin:workflow_creativeproject_changelist"),
-                    },
-                    {
-                        "title": "参数构建工厂",
-                        "icon": "precision_manufacturing",
-                        # "link": reverse_lazy("admin:creative_batch_orchestrator"),
-                        "link": reverse_lazy("admin:creative_batch_factory"),
-                    },
-                    {
-                        "title": "任务批次监控",
-                        "icon": "view_list",
-                        "link": reverse_lazy("admin:workflow_creativebatch_changelist"),
                     },
                 ],
             },

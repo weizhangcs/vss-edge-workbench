@@ -1,42 +1,18 @@
-# 文件路径: apps/workflow/creative/urls.py
-
+# apps/workflow/creative/urls.py
 from django.urls import path
 
 from . import views as creative_views
 
-# app_name = 'workflow' 已经在父级定义
-# URL names here will be 'workflow:creative_...'
-
 urlpatterns = [
-    # 对应 步骤 1
+    # 导演模式配置页 (页面入口)
+    path("project/<uuid:project_id>/director/", creative_views.launch_director_view, name="creative_director"),
+    # API 接口 (Renamed: factory -> pipeline)
     path(
-        "project/<uuid:project_id>/trigger-narration/",
-        creative_views.trigger_narration_view,
-        name="creative_trigger_narration",
+        "project/<uuid:project_id>/pipeline/submit/",
+        creative_views.submit_pipeline_view,
+        name="creative_pipeline_submit",
     ),
     path(
-        "project/<uuid:project_id>/trigger-localize/",
-        creative_views.trigger_localize_view,
-        name="creative_trigger_localize",
-    ),
-    # 对应 步骤 2
-    path("project/<uuid:project_id>/trigger-audio/", creative_views.trigger_audio_view, name="creative_trigger_audio"),
-    # 对应 步骤 3
-    path("project/<uuid:project_id>/trigger-edit/", creative_views.trigger_edit_view, name="creative_trigger_edit"),
-    path(
-        "project/<uuid:project_id>/trigger-synthesis/",
-        creative_views.trigger_synthesis_view,
-        name="creative_trigger_synthesis",
-    ),
-    # [新增] 批量工厂提交接口
-    path(
-        "project/<uuid:project_id>/factory/submit/",
-        creative_views.submit_factory_batch_view,
-        name="creative_factory_submit",
-    ),
-    path(
-        "project/<uuid:project_id>/factory/debug/",
-        creative_views.debug_factory_batch_view,
-        name="creative_factory_debug",
+        "project/<uuid:project_id>/pipeline/debug/", creative_views.debug_pipeline_view, name="creative_pipeline_debug"
     ),
 ]

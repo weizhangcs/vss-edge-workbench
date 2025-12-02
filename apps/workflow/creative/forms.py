@@ -10,7 +10,7 @@ from unfold.widgets import (
 
 from apps.workflow.inference.projects import InferenceProject
 
-from .projects import CreativeProject
+from .models import CreativeProject
 
 
 class CreativeProjectForm(forms.ModelForm):

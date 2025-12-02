@@ -131,7 +131,7 @@ echo "✅ Configuration successful. Starting deployment..."
 COMPOSE_FILES="-f $BASE_COMPOSE_FILE -f $DEPLOY_COMPOSE_FILE"
 WEB_SERVICE="web"
 DB_SERVICE="db"
-PROJECT_NAME="visify-edge" # <-- 锁定项目名称
+PROJECT_NAME="vss-edge" # <-- 锁定项目名称
 COLLECTSTATIC_LOG_FILE="exec_tmp.log" # 用于捕获 exec 过程中的临时日志
 
 # 1. 启动所有服务 (Launch all services)

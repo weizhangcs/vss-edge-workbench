@@ -7,7 +7,7 @@ services:
     #image: ghcr.io/weizhangcs/vss-workbench:latest
     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
 
-  celery_worker:
+  worker:
     #image: ghcr.io/weizhangcs/vss-workbench:latest
     image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:latest
 

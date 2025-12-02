@@ -11,7 +11,7 @@ from django.core.files.base import ContentFile
 from apps.workflow.inference.tasks import poll_cloud_task_status
 
 from .jobs import CreativeJob
-from .projects import CreativeProject
+from .models import CreativeProject
 from .services.actions import CreativeTaskAction
 from .services.payloads import PayloadBuilder
 from .services.synthesis_service import SynthesisService
@@ -33,7 +33,7 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
         blueprint_path = action.ensure_blueprint_uploaded()
 
         job = action.create_job(CreativeJob.TYPE.GENERATE_NARRATION, config)
-        action.update_project_status(CreativeProject.STATUS.NARRATION_RUNNING)
+        action.update_project_status(CreativeProject.Status.NARRATION_RUNNING)
 
         asset_name, asset_id = action.get_asset_info()
         payload = PayloadBuilder.build_narration_payload(
@@ -62,7 +62,7 @@ def start_narration_task(project_id: str, config: dict = None, **kwargs):
             job.fail()
             job.save()
         if action:
-            action.update_project_status(CreativeProject.STATUS.FAILED)
+            action.update_project_status(CreativeProject.Status.FAILED)
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_narration_task")
@@ -81,7 +81,7 @@ def finalize_narration_task(job_id: str, cloud_task_data: dict, **kwargs):
             filename_prefix="narration_script",
         )
 
-        action.update_project_status(CreativeProject.STATUS.NARRATION_COMPLETED)
+        action.update_project_status(CreativeProject.Status.NARRATION_COMPLETED)
 
         # [核心修复] 3. 自动化链式触发
         if action.project.auto_config:
@@ -124,7 +124,7 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
         master_script_path = action.upload_file_field(action.project.narration_script_file)
 
         job = action.create_job(CreativeJob.TYPE.LOCALIZE_NARRATION, config)
-        action.update_project_status(CreativeProject.STATUS.LOCALIZATION_RUNNING)
+        action.update_project_status(CreativeProject.Status.LOCALIZATION_RUNNING)
 
         payload = PayloadBuilder.build_localize_payload(
             master_path=master_script_path, blueprint_path=blueprint_path, raw_config=config
@@ -151,7 +151,7 @@ def start_localize_task(project_id: str, config: dict = None, **kwargs):
             job.fail()
             job.save()
         if action:
-            action.update_project_status(CreativeProject.STATUS.FAILED)
+            action.update_project_status(CreativeProject.Status.FAILED)
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_localize_task")
@@ -167,7 +167,7 @@ def finalize_localize_task(job_id: str, cloud_task_data: dict, **kwargs):
             filename_prefix="localized_script",
         )
 
-        action.update_project_status(CreativeProject.STATUS.LOCALIZATION_COMPLETED)
+        action.update_project_status(CreativeProject.Status.LOCALIZATION_COMPLETED)
 
         # [核心修复] 自动化触发 Step 2 (配音)
         if action.project.auto_config:
@@ -210,7 +210,7 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
         input_path = action.upload_file_field(source_field)
 
         job = action.create_job(CreativeJob.TYPE.GENERATE_AUDIO, config)
-        action.update_project_status(CreativeProject.STATUS.AUDIO_RUNNING)
+        action.update_project_status(CreativeProject.Status.AUDIO_RUNNING)
 
         payload = PayloadBuilder.build_dubbing_payload(input_path=input_path, raw_config=config)
         logger.info(f"[AudioTask] Payload: \n{json.dumps(payload, ensure_ascii=False)}")
@@ -235,7 +235,7 @@ def start_audio_task(project_id: str, config: dict = None, **kwargs):
             job.fail()
             job.save()
         if action:
-            action.update_project_status(CreativeProject.STATUS.FAILED)
+            action.update_project_status(CreativeProject.Status.FAILED)
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_audio_task")
@@ -258,7 +258,7 @@ def finalize_audio_task(job_id: str, cloud_task_data: dict, **kwargs):
         # 2. 下载音频资源
         action.download_assets_from_dubbing_script(job_id)
 
-        action.update_project_status(CreativeProject.STATUS.AUDIO_COMPLETED)
+        action.update_project_status(CreativeProject.Status.AUDIO_COMPLETED)
 
         # 3. 触发 Step 3 (剪辑脚本)
         if action.project.auto_config:
@@ -290,7 +290,7 @@ def start_edit_script_task(project_id: str, **kwargs):
         dubbing_script_path = action.upload_file_field(action.project.dubbing_script_file)
 
         job = action.create_job(CreativeJob.TYPE.GENERATE_EDIT_SCRIPT, {})
-        action.update_project_status(CreativeProject.STATUS.EDIT_RUNNING)
+        action.update_project_status(CreativeProject.Status.EDIT_RUNNING)
 
         payload = {
             "dubbing_script_path": dubbing_script_path,
@@ -319,7 +319,7 @@ def start_edit_script_task(project_id: str, **kwargs):
             job.fail()
             job.save()
         if action:
-            action.update_project_status(CreativeProject.STATUS.FAILED)
+            action.update_project_status(CreativeProject.Status.FAILED)
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_edit_script_task")
@@ -335,7 +335,7 @@ def finalize_edit_script_task(job_id: str, cloud_task_data: dict, **kwargs):
             filename_prefix="editing_script",
         )
 
-        action.update_project_status(CreativeProject.STATUS.EDIT_COMPLETED)
+        action.update_project_status(CreativeProject.Status.EDIT_COMPLETED)
 
         # 触发 Step 4 (合成)
         if action.project.auto_config:
@@ -358,12 +358,12 @@ def start_synthesis_task(project_id: str, **kwargs):
     try:
         action = CreativeTaskAction(project_id)
 
-        if action.project.status == CreativeProject.STATUS.SYNTHESIS_RUNNING:
+        if action.project.status == CreativeProject.Status.SYNTHESIS_RUNNING:
             logger.warning(f"项目 {project_id} 正在合成中，跳过重复触发。")
             return
 
         job = action.create_job(CreativeJob.TYPE.SYNTHESIS, {})
-        action.update_project_status(CreativeProject.STATUS.SYNTHESIS_RUNNING)
+        action.update_project_status(CreativeProject.Status.SYNTHESIS_RUNNING)
 
         if not action.project.edit_script_file:
             raise ValueError("缺少剪辑脚本 (edit_script_file)")
@@ -416,7 +416,7 @@ def start_synthesis_task(project_id: str, **kwargs):
             job.fail()
             job.save()
         if action:
-            action.update_project_status(CreativeProject.STATUS.FAILED)
+            action.update_project_status(CreativeProject.Status.FAILED)
 
 
 @shared_task(name="apps.workflow.creative.tasks.finalize_synthesis_task")
@@ -432,7 +432,7 @@ def finalize_synthesis_task(job_id: str, final_output_path: str, **kwargs):
         with output_path_obj.open("rb") as f:
             project.final_video_file.save(output_path_obj.name, ContentFile(f.read()), save=False)
 
-        project.status = CreativeProject.STATUS.COMPLETED
+        project.status = CreativeProject.Status.COMPLETED
         project.save()
 
         job.complete()

@@ -48,7 +48,7 @@ services:
     environment: # <-- 新增：设置时区
       - TZ=Asia/Shanghai
 
-  celery_worker:
+  worker:
     command: celery -A visify_ssw worker -l info --concurrency=1
     user: root
     env_file:

@@ -17,7 +17,7 @@ services:
     ports:
       - "6379:6379"
 
-  celery_worker:
+  worker:
     build:
       context: .
     volumes:
