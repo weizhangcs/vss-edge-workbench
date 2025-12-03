@@ -1,0 +1,193 @@
+<View style="display: flex; column-gap: 25px; height: 100vh; overflow: hidden;">
+
+  <View style="flex: 65%; overflow-y: auto; padding-right: 10px;">
+
+    <Video name="video_player" value="$video_url" sync="audio_timeline" />
+
+    <Audio name="audio_timeline" value="$video_url" />
+
+    <View style="margin-top: 15px; padding: 15px; background: #fff; border: 1px solid #eee; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <Header value="标注工具 (请在上方波形图上操作)" size="6" style="margin-bottom: 10px; color: #007bff; font-weight: bold;"/>
+
+        <Labels name="region_type" toName="audio_timeline">
+          <Label value="场景/Scene" background="#007bff"/>
+          <Label value="高光/Highlight" background="#28a745"/>
+          <Label value="叙事线索/NARRATIVE_CUE" background="#ffc107"/>
+        </Labels>
+    </View>
+
+  </View>
+
+  <View style="flex: 35%; height: 100%; overflow-y: auto; padding: 15px; background: #f0f2f5; border-left: 1px solid #ccc;">
+
+    <View visibleWhen="no-region-selected" style="padding: 40px 20px; text-align: center; color: #999;">
+        <Text name="instruction" value="👈 请在左侧【音频波形】上创建片段以开始填写信息。"/>
+    </View>
+
+    <View visibleWhen="region-selected" whenLabelValue="场景/Scene" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+
+      <Header value="🎬 场景标注 (SCENE)" style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-bottom: 20px; font-size: 18px;"/>
+
+      <View style="display: flex; gap: 15px; margin-bottom: 15px;">
+        <View style="flex: 1; min-width: 80px;">
+          <Header value="场景ID" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+          <Number name="scene_id" toName="audio_timeline" perRegion="true" min="1"/>
+        </View>
+        <View style="flex: 3;">
+          <Header value="地点" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+          <TextArea name="scene_location" toName="audio_timeline" perRegion="true" maxSubmissions="1" placeholder="例如：在一座大厦前" rows="1"/>
+        </View>
+      </View>
+
+      <Header value="情节描述" style="font-size: 13px; margin-top: 20px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <TextArea name="scene_character_dynamics" toName="audio_timeline" perRegion="true" rows="3" maxSubmissions="1" showSubmitButton="false" placeholder="人物关系、行为、目标..."/>
+
+      <Header value="场景内容类型" style="font-size: 13px; margin-top: 20px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <Choices name="scene_content_type" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+        <Choice value="对话驱动/Dialogue_Heavy"/>
+        <Choice value="动作驱动/Action_Driven"/>
+        <Choice value="内心独白/Internal_Monologue"/>
+        <Choice value="视觉叙事/Visual_Storytelling"/>
+      </Choices>
+
+      <View style="border-top: 1px dashed #eee; margin-top: 20px; padding-top: 15px;">
+        <Header value="情绪或氛围" style="font-size: 13px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+        <Choices name="scene_mood_and_atmosphere" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+            <Choice value="浪漫/Romantic"/>
+            <Choice value="温馨/Warm"/>
+            <Choice value="喜悦/Joyful"/>
+            <Choice value="平静/Calm"/>
+            <Choice value="紧张/Tense"/>
+            <Choice value="悬疑/Suspenseful"/>
+            <Choice value="悲伤/Sad"/>
+            <Choice value="愤怒/Angry"/>
+            <Choice value="冲突/Confrontational"/>
+            <Choice value="恐惧/Fearful"/>
+            <Choice value="压抑/Oppressive"/>
+            <Choice value="诡异/Eerie"/>
+        </Choices>
+      </View>
+
+      <Header value="叙事分支" style="font-size: 13px; margin-top: 20px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <Choices name="narrative_branch_type" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+        <Choice value="无/NONE"/>
+        <Choice value="主干或并行分支/BRANCH"/>
+        <Choice value="分支交叉点/INTERSECTION"/>
+      </Choices>
+      <View visibleWhen="choice-selected" whenTagName="narrative_branch_type" whenChoiceValue="主干或并行分支/BRANCH" style="display: flex; align-items: center; gap: 15px; background: #f1f8ff; padding: 10px; border-radius: 4px; margin-top: 5px;">
+        <Text name="branch_label" value="分支ID:"/>
+        <Number name="branch_id" toName="audio_timeline" perRegion="true" min="0" defaultValue="0"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="narrative_branch_type" whenChoiceValue="分支交叉点/INTERSECTION" style="display: flex; align-items: center; gap: 15px; background: #f1f8ff; padding: 10px; border-radius: 4px; margin-top: 5px;">
+        <Text name="intersection_label" value="交叉 (X, Y):"/>
+        <Number name="branch_intersection_x" toName="audio_timeline" perRegion="true" min="0" defaultValue="0"/>
+        <Number name="branch_intersection_y" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+      </View>
+
+      <Header value="时间线索" style="font-size: 13px; margin-top: 20px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <Choices name="scene_timeline_marker_type" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+        <Choice value="开始/START"/>
+        <Choice value="无/NONE"/>
+        <Choice value="返回现在/RETURN_PRESENT"/>
+        <Choice value="插入过去/INSERT_PAST"/>
+        <Choice value="预叙/FORWARD"/>
+        <Choice value="引用过去/REFERENCE"/>
+        <Choice value="过去/PAST"/>
+        <Choice value="未来/FUTURE"/>
+        <Choice value="无关画面/UNRELATED"/>
+      </Choices>
+
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="插入过去/INSERT_PAST" style="display: flex; align-items: center; gap: 5px; background: #fff3cd; padding: 10px; border-radius: 4px; flex-wrap: wrap; margin-top: 5px;">
+         <Text name="insert_past_label" value="插入坐标(章/场/序):" style="font-size: 12px; width: 100%; margin-bottom: 5px;"/>
+         <Number name="insert_past_chapter" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+         <Number name="insert_past_scene" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+         <Number name="insert_past_inner_index" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="预叙/FORWARD" style="display: flex; align-items: center; gap: 5px; background: #fff3cd; padding: 10px; border-radius: 4px; flex-wrap: wrap; margin-top: 5px;">
+        <Text name="forward_label" value="重定位(章/场/序):" style="font-size: 12px; width: 100%; margin-bottom: 5px;"/>
+        <Number name="forward_chapter" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+        <Number name="forward_scene" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+        <Number name="forward_inner_index" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="引用过去/REFERENCE" style="margin-top: 5px;">
+        <Text name="reference_label" value="引用坐标集:" style="font-size: 12px; color: #666;"/>
+        <TextArea name="reference_scenes" toName="audio_timeline" perRegion="true" placeholder="例如: 1_2 或 1_2;3_5" rows="1"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="过去/PAST" style="display: flex; align-items: center; gap: 10px; margin-top: 5px;">
+        <Text name="past_label_1" value="顺序:" style="font-size: 12px;"/>
+        <Number name="past_inner_index" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+        <Text name="past_label_2" value="描述:" style="font-size: 12px;"/>
+        <TextArea name="past_description" toName="audio_timeline" perRegion="true" placeholder="例如: Ten Years Ago" rows="1"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="未来/FUTURE" style="display: flex; align-items: center; gap: 10px; margin-top: 5px;">
+        <Text name="future_label_1" value="顺序:" style="font-size: 12px;"/>
+        <Number name="future_inner_index" toName="audio_timeline" perRegion="true" min="1" defaultValue="1"/>
+        <Text name="future_label_2" value="描述:" style="font-size: 12px;"/>
+        <TextArea name="future_description" toName="audio_timeline" perRegion="true" placeholder="例如: Six Months Later" rows="1"/>
+      </View>
+      <View visibleWhen="choice-selected" whenTagName="scene_timeline_marker_type" whenChoiceValue="无关画面/UNRELATED" style="margin-top: 5px;">
+        <Text name="unrelated_label" value="描述:" style="font-size: 12px;"/>
+        <TextArea name="unrelated_description" toName="audio_timeline" perRegion="true" placeholder="例如: In a dream" rows="1"/>
+      </View>
+    </View>
+
+    <View visibleWhen="region-selected" whenLabelValue="高光/Highlight" style="background: #fff; padding: 20px; border-radius: 8px; border-top: 4px solid #28a745; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+      <Header value="✨ 高光标注 (HIGHLIGHT)" style="margin-top: 0; color: #28a745; margin-bottom: 15px; font-size: 18px;"/>
+
+      <View style="display: flex; gap: 15px; margin-bottom: 10px;">
+          <View style="flex: 1;">
+             <Header value="高光ID" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+             <Number name="highlight_id" toName="audio_timeline" perRegion="true" min="1"/>
+          </View>
+          <View style="flex: 3;">
+             <Header value="类型" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+             <Choices name="highlight_type" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+                <Choice value="动作片段"/>
+                <Choice value="情感片段"/>
+                <Choice value="对话片段"/>
+                <Choice value="悬念片段"/>
+                <Choice value="信息片段"/>
+                <Choice value="幽默片段"/>
+             </Choices>
+          </View>
+      </View>
+
+      <Header value="情节描述" style="font-size: 13px; margin-top: 15px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <TextArea name="highlight_description" toName="audio_timeline" perRegion="true" rows="3" maxSubmissions="1" showSubmitButton="false"/>
+
+      <Header value="情绪" style="font-size: 13px; margin-top: 15px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <Choices name="highlight_mood" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+        <Choice value="燃/Exciting"/>
+        <Choice value="爽/Satisfying"/>
+        <Choice value="虐/Heart-wrenching"/>
+        <Choice value="甜/Sweet"/>
+        <Choice value="爆笑/Hilarious"/>
+        <Choice value="恐怖/Terrifying"/>
+        <Choice value="治愈/Healing"/>
+        <Choice value="感动/Touching"/>
+        <Choice value="紧张/Tense"/>
+      </Choices>
+    </View>
+
+    <View visibleWhen="region-selected" whenLabelValue="叙事线索/NARRATIVE_CUE" style="background: #fff; padding: 20px; border-radius: 8px; border-top: 4px solid #ffc107; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+      <Header value="🔑 叙事线索 (CUE)" style="margin-top: 0; color: #d39e00; margin-bottom: 15px; font-size: 18px;"/>
+
+      <Header value="线索类型" style="font-size: 13px; margin-bottom: 8px; font-weight: bold; color: #333;"/>
+      <Choices name="narrative_cue_type" toName="audio_timeline" perRegion="true" choice="single-radio" showInline="true">
+        <Choice value="关键信息/Key_Information"/>
+        <Choice value="物品/Object"/>
+      </Choices>
+
+      <View visibleWhen="choice-selected" whenTagName="narrative_cue_type" whenChoiceValue="关键信息/Key_Information" style="margin-top: 15px;">
+        <Header value="关键信息描述" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+        <TextArea name="key_information_summary" toName="audio_timeline" perRegion="true" rows="2" showSubmitButton="true" placeholder="核心事实..."/>
+      </View>
+
+      <View visibleWhen="choice-selected" whenTagName="narrative_cue_type" whenChoiceValue="物品/Object" style="margin-top: 15px;">
+        <Header value="物品名称" style="font-size: 12px; margin-bottom: 5px; color: #666;"/>
+        <TextArea name="object_name" toName="audio_timeline" perRegion="true" rows="1" showSubmitButton="true"/>
+      </View>
+    </View>
+
+  </View>
+</View>

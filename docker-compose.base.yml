@@ -86,25 +86,44 @@ services:
     ports:
       - "8081:8080"
     volumes:
+      # 数据卷保留，用于存储上传的头像等文件 (项目数据将存入 Postgres)
       - label_studio_data:/label-studio/data
-      #- ./configs/nginx/nginx-ls.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - db
+      - redis
+    # 启动命令保持不变
     command: label-studio start --username ${DJANGO_SUPERUSER_EMAIL} --password ${DJANGO_SUPERUSER_PASSWORD}
-    environment: # <-- 修改：合并和追加时区设置
-      - LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN=true
+    environment:
+      # --- 基础网络配置 ---
       - LABEL_STUDIO_HOST=${LABEL_STUDIO_PUBLIC_URL}
       - DJANGO_ALLOWED_HOSTS=*
-      - NGINX_PROXY_PASS_AUTHORIZATION=true
-      - LABEL_STUDIO_SIGNUP_WITHOUT_INVITE=true
+      - TZ=Asia/Shanghai
+
+      # --- [保留] 遗留Token支持 (init.sh 脚本依赖此项获取 Token) ---
+      - LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN=true
+
+      # --- [变更 2] 数据库生产级配置 (切换至 Postgres) ---
+      - DJANGO_DB=default
+      - POSTGRE_NAME=label_studio
+      - POSTGRE_USER=${POSTGRES_USER}
+      - POSTGRE_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRE_HOST=db
+      - POSTGRE_PORT=5432
+
+      # --- [保留] Redis 缓存与 Session (高性能必备) ---
       - DJANGO_SESSION_ENGINE=django.contrib.sessions.backends.cache
       - LABEL_STUDIO_CACHE_BACKEND=django_redis.cache.RedisCache
       - REDIS_LOCATION=redis://redis:6379/1
+      # 安全 Cookie 策略 (根据您的 .env 动态加载)
       - DJANGO_SESSION_COOKIE_SAMESITE=Lax
       - DJANGO_SESSION_COOKIE_SECURE=False
       - DJANGO_CSRF_COOKIE_SAMESITE=Lax
       - DJANGO_CSRF_COOKIE_SECURE=False
       - CSRF_TRUSTED_ORIGINS=${LABEL_STUDIO_PUBLIC_URL}
+
+      # --- 资源加载策略 ---
       - CSP_CONNECT_SRC='self' ${LOCAL_MEDIA_URL_BASE}
-      - TZ=Asia/Shanghai # <-- 新增：设置时区
+      - CSP_FRAME_SRC='self' https://labelstud.io
 
 volumes:
   postgres_data:

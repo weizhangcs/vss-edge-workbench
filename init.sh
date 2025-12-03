@@ -218,6 +218,20 @@ if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     exit 1
 fi
 
+# --- Step 2.2: 自动创建 Label Studio 数据库 ---
+echo "2.2 正在检查并创建 Label Studio 专用数据库..."
+
+# 1. 从 .env 提取数据库用户名 (防止用户改了 .env 但脚本不知道)
+#    注意：这里假设 .env 格式标准 (POSTGRES_USER=xxx)
+DB_USER=$(grep "^POSTGRES_USER=" "$ENV_FILE" | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+
+# 2. 执行创建命令
+#    使用 || true 忽略 "数据库已存在" 的错误，保证脚本幂等性 (Idempotency)
+#    psql -c 命令会自动使用容器内的信任认证
+docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $DB_SERVICE psql -U "$DB_USER" -c "CREATE DATABASE label_studio;" || true
+
+echo "✅ Label Studio 数据库准备就绪。"
+
 echo "3. 执行数据库迁移 (Migrate)..."
 if ! docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py migrate --noinput > "$COLLECTSTATIC_LOG_FILE" 2>&1; then
     echo "❌ 错误: 数据库迁移失败！"
