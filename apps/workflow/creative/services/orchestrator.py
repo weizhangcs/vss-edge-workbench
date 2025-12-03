@@ -210,20 +210,21 @@ class CreativeOrchestrator:
         return results
 
     @transaction.atomic
-    def create_pipeline_from_strategy(
-        self, count: int, strategy: dict, source_creative_project_id: str
-    ):  # 移除返回类型注解避免循环引用问题，或使用字符串 'CreativeProject'
+    def create_pipeline_from_strategy(self, count: int, strategy: dict, source_creative_project_id: str):
         """
-        [V3 Refactor] 直接创建单体 Project，不再依赖 Batch
+        [V4 Refactor] 导演模式：原地执行 (In-place Execution)
+        直接在源项目上更新配置并启动任务，不再创建新项目。
         """
-        # [修复] 局部导入模型，防止 Circular Import 或 NameError
         from apps.workflow.creative.models import CreativeProject
-        from apps.workflow.inference.projects import InferenceProject
 
-        inf_proj = InferenceProject.objects.get(id=self.inference_project_id)
-        source_proj = CreativeProject.objects.get(id=source_creative_project_id)
+        # 1. 获取当前项目 (这就是我们的操作对象)
+        target_proj = CreativeProject.objects.get(id=source_creative_project_id)
 
-        # 1. 解析配置
+        # 确保关联了正确的推理项目 (通常已经关联，这里是防御性检查或更新)
+        # inf_proj = InferenceProject.objects.get(id=self.inference_project_id)
+        # target_proj.inference_project = inf_proj # 如果需要强制同步
+
+        # 2. 解析配置
         pure_config_map = {}
         modes_map = {}
         for domain, data in strategy.items():
@@ -234,20 +235,17 @@ class CreativeOrchestrator:
 
         instance_config = self._flatten_strategy(pure_config_map)
 
-        # 2. 创建项目
-        target_proj = CreativeProject.objects.create(
-            inference_project=inf_proj,
-            asset=inf_proj.asset,
-            project_type=CreativeProject.Type.DEFAULT,
-            name=f"{inf_proj.name} - Director Run",
-            description=f"Auto Generated Pipeline. Modes: {modes_map}",
-            auto_config=instance_config,
-        )
+        # 3. [核心修改] 原地更新项目信息
+        target_proj.auto_config = instance_config
+        target_proj.description = f"Director Execution. Modes: {modes_map}"
+        # 如果是首次运行，状态可能是 CREATED；如果是重跑，状态可能是 COMPLETED
+        # 我们不在这里强制重置状态为 CREATED，而是让具体的 Task 去更新状态 (e.g. NARRATION_RUNNING)
+        target_proj.save()
 
-        logger.info(f"Starting Pipeline Project {target_proj.id}...")
+        logger.info(f"Starting Pipeline Execution IN-PLACE for Project {target_proj.id}...")
 
         # =========================================================
-        # 流水线控制器 (Pipeline Controller) - 链式阻断逻辑
+        # 流水线控制器 (Pipeline Controller)
         # =========================================================
 
         # --- Step 1: Narration ---
@@ -255,20 +253,29 @@ class CreativeOrchestrator:
         step_1_done = False
 
         if mode_narration == "LOCKED":
-            self._replicate_asset(source_proj, target_proj, "narration_script_file")
-            target_proj.status = CreativeProject.Status.NARRATION_COMPLETED
-            target_proj.save()
+            # In-place 模式下，LOCKED 意味着“保留原样”
+            # 如果文件本来就在这里，不需要 replicate。
+            # 但为了逻辑统一，如果用户是从别的项目 Fork 来的（未来场景），replicate 也是安全的（self copy）
+            if target_proj.narration_script_file:
+                logger.info(f"[{target_proj.id}] Narration Locked (Preserved).")
+                # 状态如果是 FAILED 或其他，可能需要修正为 COMPLETED？
+                # 暂时假设 LOCKED 意味着用户确认它是好的。
+                target_proj.status = CreativeProject.Status.NARRATION_COMPLETED
+                target_proj.save()
+                step_1_done = True
+            else:
+                # 异常：选了 LOCKED 但没文件
+                logger.warning(f"[{target_proj.id}] Narration Locked but no file found! Fallback to NEW.")
+                mode_narration = "NEW"  # 强制降级为 NEW
+
+        if mode_narration == "SKIP":
             step_1_done = True
-        elif mode_narration == "SKIP":
-            step_1_done = True
-        else:
-            # NEW/RECREATE: 启动异步任务
+
+        if mode_narration == "NEW":  # 注意：这里不能用 elif，因为上面可能降级
             logger.info(f"[{target_proj.id}] Triggering Narration Pipeline Task...")
             start_narration_task.delay(project_id=str(target_proj.id), config=instance_config.get("narration"))
-            # [关键修复] 任务已发出，主进程立即返回，等待回调触发下一步
             return target_proj
 
-            # 如果 Step 1 没做完（实际上上面的 else 已经 return 了，这里的 check 是双重保险）
         if not step_1_done:
             return target_proj
 
@@ -277,15 +284,18 @@ class CreativeOrchestrator:
         step_1_5_done = False
 
         if mode_loc == "LOCKED":
-            self._replicate_asset(source_proj, target_proj, "localized_script_file")
-            target_proj.status = CreativeProject.Status.LOCALIZATION_COMPLETED
-            target_proj.save()
+            if target_proj.localized_script_file:
+                target_proj.status = CreativeProject.Status.LOCALIZATION_COMPLETED
+                target_proj.save()
+                step_1_5_done = True
+            else:
+                mode_loc = "NEW"  # Fallback
+
+        if mode_loc == "SKIP":
             step_1_5_done = True
-        elif mode_loc == "SKIP":
-            step_1_5_done = True
-        else:
+
+        if mode_loc == "NEW" or mode_loc == "RECREATE":
             start_localize_task.delay(project_id=str(target_proj.id), config=instance_config.get("localize"))
-            # [关键修复] 异步中断
             return target_proj
 
         if not step_1_5_done:
@@ -295,19 +305,24 @@ class CreativeOrchestrator:
         mode_audio = modes_map.get("audio", "NEW")
 
         if mode_audio == "LOCKED":
-            self._replicate_asset(source_proj, target_proj, "dubbing_script_file")
-            target_proj.status = CreativeProject.Status.AUDIO_COMPLETED
-            target_proj.save()
-        elif mode_audio == "SKIP":
+            if target_proj.dubbing_script_file:
+                target_proj.status = CreativeProject.Status.AUDIO_COMPLETED
+                target_proj.save()
+            else:
+                mode_audio = "NEW"  # Fallback
+
+        if mode_audio == "SKIP":
             pass
-        else:
+
+        if mode_audio == "NEW" or mode_audio == "RECREATE":
             audio_conf = instance_config.get("audio", {}).copy()
             # 语言推断逻辑
             target_lang = None
             if mode_loc == "NEW" or mode_loc == "RECREATE":
                 target_lang = instance_config.get("localize", {}).get("target_lang")
             elif mode_loc == "LOCKED":
-                # TODO: 可以尝试读取 source_proj 的配置
+                # 尝试从已存在的 localize 脚本或配置中读取？比较复杂，暂时由前端传递或默认
+                # 简单做法：如果 Localize 是 Locked，且有 target_lang 配置，沿用
                 pass
 
             if target_lang:
@@ -321,10 +336,8 @@ class CreativeOrchestrator:
                     audio_conf["language_code"] = "cmn-CN"
 
             start_audio_task.delay(project_id=str(target_proj.id), config=audio_conf)
-            # [关键修复] 异步中断
             return target_proj
 
-        # 如果所有步骤都是 Locked/Skip，或者走到了最后一步，保存状态
+        # 保存最终状态
         target_proj.save()
-
         return target_proj

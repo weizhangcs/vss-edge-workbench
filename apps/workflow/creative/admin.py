@@ -55,7 +55,6 @@ class CreativeProjectAdmin(ModelAdmin):
     autocomplete_fields = ["inference_project"]
 
     readonly_fields = ("status",)
-    fieldsets = ((None, {"fields": ()}),)
 
     def status_badge(self, obj):
         return obj.status
@@ -74,11 +73,33 @@ class CreativeProjectAdmin(ModelAdmin):
         ]
         return custom_urls + urls
 
-    # --- 视图 1: 导演驾驶舱 ---
+    # --- 核心：字段显示控制 ---
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            # [Add View] 显示创建表单
+            return (
+                (
+                    None,
+                    {
+                        "fields": ("name", "inference_project", "project_type"),
+                        "description": "请填写项目名称并关联推理项目。系统将自动关联对应的媒资。",
+                    },
+                ),
+            )
+        # [Change View] 隐藏所有字段 (交给 React)
+        return ((None, {"fields": ()}),)
+
+    # --- 核心：视图与模板控制 ---
+
+    def add_view(self, request, form_url="", extra_context=None):
+        # [强制重置] Add 模式必须用默认模板，否则会加载 React 导致 404
+        self.change_form_template = None
+        return super().add_view(request, form_url, extra_context)
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
 
-        # 隐藏多余按钮
+        # [UI] 隐藏按钮
         extra_context["show_save"] = False
         extra_context["show_save_and_continue"] = False
         extra_context["show_save_and_add_another"] = False
@@ -106,11 +127,11 @@ class CreativeProjectAdmin(ModelAdmin):
                 ensure_ascii=False,
             )
 
+            # [强制指定] Change 模式必须加载 React 模板
             self.change_form_template = "admin/workflow/project/creative/director_tab.html"
 
         return super().change_view(request, object_id, form_url, extra_context)
 
-    # --- 视图 2: 进度监视器 ---
     def render_monitor_tab(self, request, object_id, extra_context=None):
         context = extra_context or {}
         project = self.get_object(request, object_id)
@@ -119,7 +140,7 @@ class CreativeProjectAdmin(ModelAdmin):
         context["show_save_and_continue"] = False
         context["show_save_and_add_another"] = False
 
-        # 1. 注入进度 (保持不变)
+        # 1. 进度
         status_weights = {
             "CREATED": 5,
             "NARRATION_RUNNING": 15,
@@ -138,7 +159,7 @@ class CreativeProjectAdmin(ModelAdmin):
         context["project"] = project
         context["is_running"] = project.status not in ["COMPLETED", "FAILED"]
 
-        # 2. 解说词解析 (保持不变)
+        # 2. 解说词解析
         script_data = []
         has_translation = False
         target_file = project.localized_script_file if project.localized_script_file else project.narration_script_file
@@ -148,16 +169,13 @@ class CreativeProjectAdmin(ModelAdmin):
                 with target_file.open("r") as f:
                     data = json.load(f)
                     if isinstance(data, dict):
-                        # 兼容 narration_script 或 narration 键
                         raw_list = data.get("narration_script") or data.get("narration") or []
                     else:
                         raw_list = data if isinstance(data, list) else []
 
                     for item in raw_list:
-                        # 鲁棒性提取
                         main_text = (item.get("narration") or "").strip()
                         source_text = (item.get("narration_source") or "").strip()
-
                         if project.localized_script_file and source_text:
                             script_data.append({"source": source_text, "target": main_text})
                             has_translation = True
@@ -173,37 +191,29 @@ class CreativeProjectAdmin(ModelAdmin):
         context["script_lines"] = script_data
         context["has_translation"] = has_translation
 
-        # 3. [重构] 配音解析 (直接读取 local_audio_path)
+        # 3. 配音解析
         audio_list = []
         if project.dubbing_script_file:
             try:
                 with project.dubbing_script_file.open("r") as f:
                     data = json.load(f)
-                    # 兼容 dubbing_script 或 dubbing 键
                     segments = data.get("dubbing_script") or data.get("dubbing") or []
                     if not isinstance(segments, list):
                         segments = []
 
                     for seg in segments:
-                        # [核心修复] 优先读取 rewrite 后的本地路径
-                        # local_audio_path: "creative/uuid/outputs/audio_16/narration_000.mp3"
                         local_path = seg.get("local_audio_path")
-
-                        # 兜底：如果还没 rewrite (比如任务刚开始)，尝试用 audio_file_path (Cloud Path)
-                        # 但 Cloud Path 通常无法直接访问，所以这里主要依赖 local_path
-
                         text_preview = (seg.get("narration") or "")[:20] + "..."
 
                         if local_path:
-                            # 直接拼接 MEDIA_URL
                             full_url = f"{settings.MEDIA_URL}{local_path}"
                             audio_list.append({"name": text_preview, "url": full_url})
-
             except Exception as e:
                 logger.error(f"Audio Parse Error: {e}")
 
         context["audio_list"] = audio_list
 
+        # [强制指定] Monitor 模板
         self.change_form_template = "admin/workflow/project/creative/monitor.html"
         return super().changeform_view(request, str(object_id), extra_context=context)
 
@@ -213,6 +223,7 @@ class CreativeProjectAdmin(ModelAdmin):
         url = reverse("admin:workflow_creativeproject_tab_monitor", args=[obj.pk])
         return format_html('<a href="{}" class="button">查看进度</a>', url)
 
-    def add_view(self, request, form_url="", extra_context=None):
-        self.change_form_template = None
-        return super().add_view(request, form_url, extra_context)
+    def save_model(self, request, obj, form, change):
+        if not change and obj.inference_project and not obj.asset_id:
+            obj.asset = obj.inference_project.asset
+        super().save_model(request, obj, form, change)
