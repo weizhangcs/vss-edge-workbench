@@ -404,6 +404,9 @@ class AnnotationProjectAdmin(ModelAdmin):
                 # 为 L2 分页器提供占位符 (确保 L1 模板中的分页链接能正确构建)
                 "l2l3_page_obj": Paginator([], 10).get_page(request.GET.get("l2l3_page", 1)),
                 "l2l3_active_filter": request.GET.get("l2l3_status"),
+                "show_save": False,
+                "show_save_and_continue": False,
+                "show_save_and_add_another": False,
             }
         )
 
@@ -455,6 +458,9 @@ class AnnotationProjectAdmin(ModelAdmin):
                 # 为 L1 分页器提供占位符 (确保 L2 模板中的分页链接能正确构建)
                 "l1_page_obj": Paginator([], 10).get_page(request.GET.get("page", 1)),
                 "l1_active_filter": request.GET.get("l1_status"),
+                "show_save": False,
+                "show_save_and_continue": False,
+                "show_save_and_add_another": False,
             }
         )
 
@@ -477,6 +483,9 @@ class AnnotationProjectAdmin(ModelAdmin):
         (已重构：不再需要自定义模板)
         """
         context = extra_context or {}
+        context["show_save"] = False
+        context["show_save_and_continue"] = False
+        context["show_save_and_add_another"] = False
 
         # 1. 动态设置 fieldsets
         self.fieldsets = self.tab_l3_fieldsets

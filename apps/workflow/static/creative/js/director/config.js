@@ -51,13 +51,34 @@
                     { label: "第一人称", value: "first_person" }
                 ]
             },
+
+            perspective_character: {
+                label: "角色名称", group: "content", widget: "input",
+                type: TYPES.VALUE,
+                desc: "指定第一人称的角色（如：车小小）"
+            },
+
             scope: {
                 label: "剧情范围", group: "content", widget: "segmented",
                 type: TYPES.VALUE,
                 options: [
                     { label: "全剧模式", value: "full" },
-                    { label: "前5集 (测试)", value: "episode_range" }
+                    { label: "选集模式", value: "episode_range" }
                 ]
+            },
+            // [新增] 起始集
+            scope_start: {
+                label: "起始集数", group: "content", widget: "number",
+                type: TYPES.VALUE,
+                min: 1, max: 100, step: 1,
+                desc: "开始集数 (包含)"
+            },
+            // [新增] 结束集
+            scope_end: {
+                label: "结束集数", group: "content", widget: "number",
+                type: TYPES.VALUE,
+                min: 1, max: 100, step: 1,
+                desc: "结束集数 (包含)"
             },
             target_duration_minutes: {
                 label: "目标时长", group: "constraints", widget: "slider",
@@ -92,10 +113,7 @@
                 type: TYPES.VALUE,
                 options: [
                     { label: "英语", value: "en" },
-                    { label: "法语", value: "fr" },
-                    { label: "德语", value: "de" },
-                    { label: "日语", value: "ja" },
-                    { label: "韩语", value: "ko" }
+                    { label: "法语", value: "fr" }
                 ],
                 desc: "目标市场"
             },
@@ -120,11 +138,14 @@
                 label: "音色选择", group: "content", widget: "segmented", // 改为单选
                 type: TYPES.VALUE,
                 options: [
-                    { label: "Puck", value: "Puck" },
-                    { label: "Charon", value: "Charon" },
-                    { label: "Kore", value: "Kore" },
-                    { label: "Fenrir", value: "Fenrir" },
-                    { label: "Aoede", value: "Aoede" }
+                    { label: "Puck (男 | 活泼幽默)", value: "Puck" },
+                    { label: "Charon (男 | 深沉磁性)", value: "Charon" },
+                    { label: "Kore (女 | 温柔治愈)", value: "Kore" },
+                    { label: "Fenrir (男 | 激昂有力)", value: "Fenrir" },
+                    { label: "Aoede (女 | 明亮自信)", value: "Aoede" },
+                    { label: "Zephyr (女 | 平和知性)", value: "Zephyr" },
+                    { label: "Orus (男 | 稳重叙述)", value: "Orus" },
+                    { label: "Leda (女 | 亲切自然)", value: "Leda" }
                 ]
             },
             speed: {
@@ -148,7 +169,10 @@
             narrative_focus: { type: TYPES.VALUE, value: 'romantic_progression' },
             style: { type: TYPES.VALUE, value: 'humorous' },
             perspective: { type: TYPES.VALUE, value: 'third_person' },
+            perspective_character: { type: TYPES.VALUE, value: '' }, // 默认为空
             scope: { type: TYPES.VALUE, value: 'full' },
+            scope_start: { type: TYPES.VALUE, value: 1 },
+            scope_end: { type: TYPES.VALUE, value: 10 },
             target_duration_minutes: { type: TYPES.VALUE, value: 5 },
             speaking_rate: { type: TYPES.VALUE, value: 4.2 },
             rag_top_k: { type: TYPES.VALUE, value: 50 },

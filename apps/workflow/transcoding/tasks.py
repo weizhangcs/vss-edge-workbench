@@ -1,4 +1,4 @@
-# 文件路径: apps/workflow/transcoding/tasks.py
+# apps/workflow/transcoding/tasks.py
 
 import logging
 import os
@@ -10,10 +10,9 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 
-from ..delivery.tasks import run_delivery_job
+from apps.workflow.models import DeliveryJob, TranscodingJob, TranscodingProject
 
-# [修复/新增] 确保导入 TranscodingProject
-from ..models import DeliveryJob, TranscodingJob, TranscodingProject
+from ..delivery.tasks import run_delivery_job
 
 logger = logging.getLogger(__name__)
 
@@ -22,113 +21,115 @@ def _check_and_update_project_status(project: TranscodingProject):
     """
     检查给定项目下的所有转码任务状态，并更新项目的聚合状态。
     """
+    # 刷新对象以获取最新状态
+    project.refresh_from_db()
+
     all_jobs = project.transcoding_jobs.all()
     total_jobs = all_jobs.count()
 
     if total_jobs == 0:
         return
 
-    completed_jobs = all_jobs.filter(status=TranscodingJob.STATUS.COMPLETED).count()
-    error_jobs = all_jobs.filter(status=TranscodingJob.STATUS.ERROR).count()
+    # [核心修复] 使用字符串字面量，避开 STATUS vs Status 的属性引用坑
+    # 同时也为了兼容 model_utils Choices 的取值方式
 
-    new_status = project.status  # 默认保持不变
+    # 检查是否有失败的任务
+    # 注意：这里假设数据库里存的就是 "ERROR" 或 "FAILED" 这样的字符串
+    # 根据日志报错，之前的 STATUS.CREATED 说明定义可能是 Choices
 
-    if error_jobs > 0:
-        # 如果有任何任务失败，项目状态应为 FAILED
-        new_status = TranscodingProject.STATUS.FAILED
-    elif completed_jobs == total_jobs:
-        # 如果所有任务都已完成，项目状态应为 COMPLETED
-        new_status = TranscodingProject.STATUS.COMPLETED
+    # 我们直接查数据库字段的值，这是最安全的
+    failed_exists = all_jobs.filter(status="ERROR").exists()
 
-    # 只有当新状态不同于当前状态时才进行更新
+    # 检查是否还有未完成的任务
+    running_exists = all_jobs.filter(status__in=["PENDING", "PROCESSING", "CREATED"]).exists()
+
+    new_status = project.status
+
+    if failed_exists:
+        new_status = "FAILED"
+    elif not running_exists:
+        # 没有正在跑的，也没有失败的，说明全成功了
+        new_status = "COMPLETED"
+    else:
+        # 还有在跑的，保持 PROCESSING (或不做改变)
+        return
+
     if project.status != new_status:
         project.status = new_status
         project.save(update_fields=["status"])
-        logger.info(f"Transcoding Project {project.id} status successfully updated to {new_status}")
+        logger.info(f"Project {project.id} status updated to {new_status}")
 
 
-@shared_task
+@shared_task(name="apps.workflow.transcoding.tasks.run_transcoding_job")
 def run_transcoding_job(job_id):
     """
-    (V2.2 健壮命令版)
-    执行一个具体的转码任务 (TranscodingJob)。
+    (V2.4 Status 修复版)
+    执行转码 -> 保存文件 -> 触发分发 -> 更新项目状态
     """
-    job = None
-    temp_output_path = None
     try:
-        # 优化查询以减少数据库访问
         job = TranscodingJob.objects.select_related("project", "profile", "media__asset").get(id=job_id)
     except TranscodingJob.DoesNotExist:
-        logger.error(f"找不到 ID 为 {job_id} 的转码任务。")
+        logger.error(f"Job {job_id} not found.")
         return
 
-    # [FIX 3a] 确保我们是从 PENDING 状态开始的
-    if job.status == TranscodingJob.STATUS.PENDING:
-        job.start()
+    # [修复] 统一使用字符串字面量或确保 Status 属性正确
+    # 这里我们直接用字符串，这是 Django Choices 的通用做法
+    if job.status == "PENDING":
+        job.start()  # start() 方法内部应该会设为 PROCESSING
         job.save()
-    elif job.status != TranscodingJob.STATUS.PROCESSING:
-        logger.warning(f"任务 {job_id} 状态为 {job.status}，不是 PENDING，跳过 start()")
-        # (如果任务是 REVISING 等，也允许继续)
-        pass
+    elif job.status != "PROCESSING":
+        logger.warning(f"Job {job_id} is {job.status}, skipping start.")
 
+    # 准备路径
     media = job.media
-    source_video_path = Path(media.source_video.path)
+    if not media.source_video:
+        logger.error(f"Job {job_id}: Media has no source video.")
+        job.fail()
+        job.save()
+        _check_and_update_project_status(job.project)
+        return
 
+    source_video_path = Path(media.source_video.path)
     temp_output_dir = Path(settings.MEDIA_ROOT) / "temp_transcoding"
     temp_output_dir.mkdir(parents=True, exist_ok=True)
-    temp_output_filename = f"{job.id}.{job.profile.container}"
+
+    ext = job.profile.container if job.profile.container else "mp4"
+    temp_output_filename = f"{job.id}.{ext}"
     temp_output_path = temp_output_dir / temp_output_filename
 
     try:
-        # 1. FFmpeg 命令组装
+        # FFmpeg 执行
         encoding_params = job.profile.ffmpeg_command.split()
         command = ["ffmpeg", "-i", str(source_video_path), *encoding_params, str(temp_output_path), "-y"]
 
-        logger.info(f"执行转码命令: {' '.join(command)}")
+        logger.info(f"FFmpeg cmd: {' '.join(command)}")
         subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8")
-        logger.info(f"FFmpeg 转码成功: {temp_output_path}")
 
-        # ----------------- 修改开始 -----------------
-        # 使用原子事务块，确保块内所有数据库操作提交后，才会执行 on_commit
+        # 原子化：保存 + 触发分发
         with transaction.atomic():
-            # 1. 先保存文件 (save=False 不操作DB，只是把文件对象挂在内存实例上)
             with open(temp_output_path, "rb") as f:
                 job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
 
-            # 2. 更新状态为 QA_PENDING
-            job.queue_for_qa()
-
-            # 3. 真正保存到数据库 (状态和文件路径同时落库)
+            job.queue_for_qa()  # 状态变为 QA_PENDING
             job.save()
-            logger.info("已将本地产出物路径保存至 job.output_file，状态已更为 QA_PENDING")
 
-            # 4. 创建分发任务记录
             delivery_job = DeliveryJob.objects.create(source_object=job)
 
-            # 5. 注册回调：只有当这个 with 块成功结束（事务提交）后，才发送 Celery 任务
             transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
 
-            logger.info(f"已为转码任务 {job.id} 创建分发任务 {delivery_job.id} (等待事务提交后触发)")
-        # ----------------- 修改结束 -----------------
+        logger.info(f"Job {job_id} finished transcoding, triggering delivery {delivery_job.id}")
 
-        # [新增逻辑] 检查并更新父级项目状态
+        # [关键] 更新项目状态
         _check_and_update_project_status(job.project)
 
     except Exception as e:
-        logger.error(f"转码任务 {job_id} 失败: {e}", exc_info=True)
-        if isinstance(e, subprocess.CalledProcessError):
-            logger.error(f"--- FFmpeg STDERR ---\n{e.stderr}")
-
-        # 任务失败，更新状态
+        logger.error(f"Job {job_id} failed: {e}", exc_info=True)
         if job:
-            job.fail()
+            job.fail()  # 状态变为 ERROR
             job.save()
-
-            # [新增逻辑] 检查并更新父级项目状态 (因为有任务失败了)
             _check_and_update_project_status(job.project)
-
         raise e
+
     finally:
-        if temp_output_path and os.path.exists(temp_output_path):
+        if temp_output_path and temp_output_path.exists():
             os.remove(temp_output_path)
-            logger.info(f"已清理临时文件: {temp_output_path}")

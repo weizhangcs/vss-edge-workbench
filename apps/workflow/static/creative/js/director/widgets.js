@@ -29,6 +29,16 @@ const WidgetConstDisplay = ({ value, options }) => {
     return <Text type="secondary" code>{label}</Text>;
 };
 
+const WidgetInputNumber = ({ value, onChange, disabled, min, max, step }) => (
+    <InputNumber
+        style={{ width: '100%' }}
+        value={value}
+        onChange={onChange}
+        min={min} max={max} step={step}
+        disabled={disabled}
+    />
+);
+
 const ConfigRow = ({ field, config, onConfigChange, isLocked }) => {
     const renderWidget = () => {
         const commonProps = { disabled: isLocked };
@@ -48,6 +58,16 @@ const ConfigRow = ({ field, config, onConfigChange, isLocked }) => {
             if (field.widget === 'segmented' || field.widget === 'pills' || field.widget === 'speed_preset') {
                 return <WidgetSegmented value={val} onChange={handleChange} options={field.options} {...commonProps} />;
             }
+
+            // [新增] 数字输入
+            if (field.widget === 'number') {
+                return <WidgetInputNumber
+                    value={val} onChange={handleChange}
+                    min={field.min} max={field.max} step={field.step}
+                    {...commonProps}
+                />;
+            }
+
             return <WidgetInput value={val} onChange={handleChange} placeholder={field.desc} {...commonProps} />;
         }
         return <div style={{color:'red'}}>Err</div>;

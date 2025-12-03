@@ -44,6 +44,10 @@ def batch_upload_page_view(request, asset_id):
             "opts": Asset._meta,
             "site_header": admin.site.site_header,
             "site_title": admin.site.site_title,
+            "show_save": False,
+            "show_save_and_continue": False,
+            "show_save_and_add_another": False,
+            "show_delete": False,
             "has_permission": True,
         }
         return render(request, "admin/media_assets/media/batch_upload.html", context)
@@ -66,5 +70,5 @@ def trigger_ingest_task(request, asset_id):  # <-- 参数改为 asset_id
     # 向用户显示成功消息
     messages.success(request, f"已成功为《{asset.title}》启动后台文件处理任务，请稍后刷新查看状态。")
 
-    # 将用户重定向回 Asset 的编辑页面
-    return redirect("admin:media_assets_asset_change", object_id=asset.id)
+    # [核心修复] 重定向回列表页，而不是详情页
+    return redirect("admin:media_assets_asset_changelist")

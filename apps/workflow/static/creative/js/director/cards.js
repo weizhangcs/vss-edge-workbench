@@ -24,8 +24,21 @@ const StrategyGroupCard = ({ title, groups, domain, badgeColor, strategyData, on
         return Object.entries(fieldGroup || {}).map(([key, fieldSchema]) => {
             const config = strategyData[key];
             if (!config) return null;
+
             const runtimeField = { ...fieldSchema, ...(config._runtime || {}) };
-            return <ConfigRow key={key} field={runtimeField} config={config} isLocked={isLocked} onConfigChange={(newConf) => onUpdate(key, newConf)} />;
+
+            // [新增] 如果标记为隐藏，则不渲染
+            if (runtimeField.hidden) return null;
+
+            return (
+                <ConfigRow
+                    key={key}
+                    field={runtimeField}
+                    config={config}
+                    isLocked={isLocked}
+                    onConfigChange={(newConf) => onUpdate(key, newConf)}
+                />
+            );
         });
     };
 

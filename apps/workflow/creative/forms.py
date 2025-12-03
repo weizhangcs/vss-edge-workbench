@@ -178,11 +178,14 @@ class DubbingConfigurationForm(forms.Form):
 
     # Google Gemini 人设
     VOICE_CHOICES = [
-        ("Puck", "Puck (幽默/男)"),
-        ("Charon", "Charon (深沉/男)"),
-        ("Kore", "Kore (冷静/女)"),
-        ("Fenrir", "Fenrir (激动/男)"),
-        ("Aoede", "Aoede (明快/女)"),
+        ("Puck", "Puck (男 | 活泼幽默)"),
+        ("Charon", "Charon (男 | 深沉磁性)"),
+        ("Kore", "Kore (女 | 温柔治愈)"),
+        ("Fenrir", "Fenrir (男 | 激昂有力)"),
+        ("Aoede", "Aoede (女 | 明亮自信)"),
+        ("Zephyr", "Zephyr (女 | 平和知性)"),
+        ("Orus", "Orus (男 | 稳重叙述)"),
+        ("Leda", "Leda (女 | 亲切自然)"),
     ]
 
     # 标准语言代码

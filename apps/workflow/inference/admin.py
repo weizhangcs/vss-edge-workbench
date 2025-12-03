@@ -75,6 +75,9 @@ class InferenceJobInline(TabularInline):
     extra = 0
     can_delete = False
 
+    # [核心修复] 隐藏标题
+    hide_title = True
+
     list_display = ("job_type", "status", "cloud_task_id", "created", "modified")
     readonly_fields = (
         "job_type",
@@ -175,6 +178,10 @@ class InferenceProjectAdmin(ModelAdmin):
         (新) 渲染 "第一步：识别" Tab。
         """
         context = extra_context or {}
+        context["show_save"] = False
+        context["show_save_and_continue"] = False
+        context["show_save_and_add_another"] = False
+
         project = self.get_object(request, object_id)
         metrics_data = None
 
@@ -212,6 +219,10 @@ class InferenceProjectAdmin(ModelAdmin):
         (新) 渲染 "第二步： 更新知识图谱" Tab。
         """
         context = extra_context or {}
+        context["show_save"] = False
+        context["show_save_and_continue"] = False
+        context["show_save_and_add_another"] = False
+
         project = self.get_object(request, object_id)
         jobs_list = InferenceJob.objects.filter(project=project, job_type=InferenceJob.TYPE.RAG_DEPLOYMENT).order_by(
             "-created"

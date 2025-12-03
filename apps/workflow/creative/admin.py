@@ -206,7 +206,15 @@ class CreativeProjectAdmin(ModelAdmin):
                         text_preview = (seg.get("narration") or "")[:20] + "..."
 
                         if local_path:
-                            full_url = f"{settings.MEDIA_URL}{local_path}"
+                            # [核心修复] 手动拼接 Nginx 的绝对地址
+                            # 1. 组合相对路径: "/media/" + "creative/..."
+                            relative_url = f"{settings.MEDIA_URL}{local_path}"
+
+                            # 2. 组合绝对路径: "http://IP:9999" + "/media/..."
+                            # 确保去除 base 末尾的 / 防止双斜杠
+                            base_url = settings.LOCAL_MEDIA_URL_BASE.rstrip("/")
+                            full_url = f"{base_url}{relative_url}"
+
                             audio_list.append({"name": text_preview, "url": full_url})
             except Exception as e:
                 logger.error(f"Audio Parse Error: {e}")

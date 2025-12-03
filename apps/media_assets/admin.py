@@ -84,10 +84,16 @@ class MediaAdmin(ModelAdmin):
     list_display = (
         "__str__",
         "asset",
+        "sequence_number",
         "modified",
     )
-    list_filter = ("asset",)
-    search_fields = ("title", "asset__title")
+
+    # [核心修复] 增强筛选与搜索
+    list_filter = ("asset__title", "asset__asset_type")  # 支持按资产名和类型筛选
+    search_fields = ("title", "asset__title")  # 支持搜文件名或资产名
+
+    # [核心修复] 增加分页
+    list_per_page = 20
 
     # [修复] 移除 processed_video_url 引用
     fieldsets = (

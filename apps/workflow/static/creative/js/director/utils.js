@@ -56,6 +56,24 @@
                 nextStrategy.localize.speaking_rate._runtime = { options: preset.options, unit: preset.unit };
             }
 
+            // A. Perspective -> Character Name
+            const perspVal = nextStrategy.narration.perspective.value;
+            // 如果 runtime 对象不存在则初始化
+            if (!nextStrategy.narration.perspective_character._runtime) {
+                nextStrategy.narration.perspective_character._runtime = {};
+            }
+            // 只有选了 first_person 才显示
+            nextStrategy.narration.perspective_character._runtime.hidden = (perspVal !== 'first_person');
+
+            // B. Scope -> Start/End
+            const scopeVal = nextStrategy.narration.scope.value;
+            const isRange = (scopeVal === 'episode_range');
+
+            ['scope_start', 'scope_end'].forEach(field => {
+                if (!nextStrategy.narration[field]._runtime) nextStrategy.narration[field]._runtime = {};
+                nextStrategy.narration[field]._runtime.hidden = !isRange;
+            });
+
             return nextStrategy;
         },
 
