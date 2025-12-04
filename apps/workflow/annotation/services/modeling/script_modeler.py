@@ -1,4 +1,4 @@
-# 文件路径: apps/media_assets/services/modeling/script_modeler.py
+# 文件路径: apps/workflow/annotation/services/modeling/script_modeler.py
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -134,13 +134,18 @@ class ScriptModeler:
                 for s_id, s_data in scenes.items()
                 if s_data.get("timeline_marker", {}).get("type") not in ["INSERT_PAST", "FORWARD"]
             ]
+            # [Fix Bug] 使用 .get() or 0 防止 NoneType 比较错误
             inserts = sorted(
                 [
                     (s_id, s_data["timeline_marker"])
                     for s_id, s_data in scenes.items()
                     if s_data.get("timeline_marker", {}).get("type") == "INSERT_PAST"
                 ],
-                key=lambda x: (x[1]["insert_chapter_id"], x[1]["insert_scene_id"], x[1]["inner_index"]),
+                key=lambda x: (
+                    x[1].get("insert_chapter_id") or 0,
+                    x[1].get("insert_scene_id") or 0,
+                    x[1].get("inner_index") or 0,
+                ),
             )
             for scene_to_insert_id, marker in inserts:
                 target_scene_id = str(marker["insert_scene_id"])
@@ -159,13 +164,18 @@ class ScriptModeler:
                 for s_id, s_data in branch_scenes.items()
                 if s_data.get("timeline_marker", {}).get("type") not in ["INSERT_PAST", "FORWARD"]
             ]
+            # [Fix Bug] 分支逻辑同样需要防御空值
             inserts = sorted(
                 [
                     (s_id, s_data["timeline_marker"])
                     for s_id, s_data in branch_scenes.items()
                     if s_data.get("timeline_marker", {}).get("type") == "INSERT_PAST"
                 ],
-                key=lambda x: (x[1]["insert_chapter_id"], x[1]["insert_scene_id"], x[1]["inner_index"]),
+                key=lambda x: (
+                    x[1].get("insert_chapter_id") or 0,
+                    x[1].get("insert_scene_id") or 0,
+                    x[1].get("inner_index") or 0,
+                ),
             )
             for scene_to_insert_id, marker in inserts:
                 target_scene_id = str(marker["insert_scene_id"])

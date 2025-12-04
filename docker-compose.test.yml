@@ -4,13 +4,13 @@
 
 services:
   web:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:v1.2.0-alpha.1 # Define the tag for the built image
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:v1.2.0-alpha.4.fix # Define the tag for the built image
     restart: always
 
   worker:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:v1.2.0-alpha.1 # Use the same tag
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/workbench:v1.2.0-alpha.4.fix # Use the same tag
     restart: always
 
   subeditor:
-    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:latest # 目前subeditor并没有进行镜像版本管理
+    image: crpi-34v4qt829vtet2cy.cn-hangzhou.personal.cr.aliyuncs.com/vss_edge/subeditor:v1.2.0-alpha.4 # 目前subeditor并没有进行镜像版本管理
     restart: always

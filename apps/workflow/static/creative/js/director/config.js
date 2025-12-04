@@ -113,6 +113,7 @@
                 type: TYPES.VALUE,
                 options: [
                     { label: "英语", value: "en" },
+                    { label: "中文", value: "zh" },
                     { label: "法语", value: "fr" }
                 ],
                 desc: "目标市场"

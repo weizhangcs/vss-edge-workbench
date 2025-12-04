@@ -51,6 +51,8 @@ def get_creative_project_tabs(request: HttpRequest) -> list[dict]:
 class CreativeProjectAdmin(ModelAdmin):
     form = CreativeProjectForm
     list_display = ("name", "asset", "status_badge", "created", "action_open_monitor")
+    # [核心修复] 增加分页
+    list_per_page = 20
     search_fields = ("name", "inference_project__name", "asset__title")
     autocomplete_fields = ["inference_project"]
 

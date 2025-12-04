@@ -32,6 +32,8 @@ class AssetAdmin(ModelAdmin):
     search_fields = ("title",)
     inlines = []
     actions = []
+    # [核心修复] 增加分页
+    list_per_page = 20
 
     @display(header=True, description="文件上传状态与操作", label="文件上传")
     def batch_upload_action(self, obj):

@@ -113,10 +113,13 @@ class InferenceProjectAdmin(ModelAdmin):
         "go_to_annotation",
     )
     list_display_links = ("name",)
+    # [核心修复] 增加分页
+    list_per_page = 20
     search_fields = ("name", "annotation_project__name")
 
     add_fieldsets = ((None, {"fields": ("name", "description", "annotation_project")}),)
     fieldsets = ((None, {"fields": ("name", "description", "annotation_project")}),)
+
     inlines = [InferenceJobInline]
 
     # --- (核心方法) ---

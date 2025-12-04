@@ -2,6 +2,7 @@
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 
@@ -142,12 +143,41 @@ class CloudApiService:
 
     def download_task_result(self, download_url: str) -> Tuple[bool, Optional[bytes]]:
         """
-        [cite_start]执行四步流程的 [第4步：下载] [cite: 27]
+        执行四步流程的 [第4步：下载]
         """
         # download_url 已经是完整的 URL
         if not download_url.startswith("http"):
             logger.error(f"Cloud API: 无效的 download_url (非 http): {download_url}")
             return False, None
+
+        # --- [核心修复开始] ---
+        # 针对 Cloud 端返回的 URL 端口丢失问题 (如返回 80 而实际配置是 8001) 进行智能修正。
+        # 策略：如果 URL 路径以 '/api/v1/' 开头，说明是 Cloud 自有接口，
+        # 我们信任本地配置的 self.BASE_URL (它包含了验证过的 IP 和端口)。
+        if "/api/v1/" in download_url:
+            try:
+                parsed_url = urlparse(download_url)
+
+                # 双重检查：确保路径匹配 API 特征
+                if parsed_url.path.startswith("/api/v1/"):
+                    # 提取原始路径 (path) 和查询参数 (query)
+                    original_path = parsed_url.path
+                    original_query = parsed_url.query
+
+                    # 使用配置中的 BASE_URL 进行替换
+                    # rstrip('/') 防止双斜杠
+                    base = self.BASE_URL.rstrip("/")
+                    path = original_path.lstrip("/")
+
+                    new_url = f"{base}/{path}"
+                    if original_query:
+                        new_url += f"?{original_query}"
+
+                    logger.info(f"Cloud API: 修正下载 URL: {download_url} -> {new_url}")
+                    download_url = new_url
+            except Exception as e:
+                logger.warning(f"Cloud API: URL 修正失败，将使用原始 URL。错误: {e}")
+        # --- [核心修复结束] ---
 
         headers = self._get_auth_headers()
 

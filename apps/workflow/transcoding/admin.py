@@ -18,6 +18,8 @@ class TranscodingProjectAdmin(ModelAdmin):
     # 详情页字段，现在也包含了编码配置的选择
     fields = ("name", "asset", "description", "encoding_profile", "status")
     readonly_fields = ("status",)
+    # [核心修复] 增加分页
+    list_per_page = 20
 
     # --- 核心修改 2: 定义“操作”列的内容 ---
     @admin.display(description="操作")
@@ -50,3 +52,5 @@ class TranscodingJobAdmin(ModelAdmin):
     list_display_links = ("media",)
     readonly_fields = ("project", "media", "profile", "output_file", "output_url")
     search_fields = ("media__title", "project__name")
+    # [核心修复] 增加分页
+    list_per_page = 20

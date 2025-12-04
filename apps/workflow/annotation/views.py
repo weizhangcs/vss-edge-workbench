@@ -21,6 +21,21 @@ from .tasks import (
 logger = logging.getLogger(__name__)
 
 
+# --- 辅助函数：构建完整媒体 URL ---
+def _build_full_media_url(relative_url):
+    """
+    将相对路径 (/media/...) 转换为绝对 URL (http://IP:9999/media/...)
+    """
+    if not relative_url:
+        return ""
+    if relative_url.startswith("http"):
+        return relative_url
+
+    # 获取 .env 中配置的媒体服务基地址 (例如 http://10.0.0.145:9999)
+    base_url = settings.LOCAL_MEDIA_URL_BASE.rstrip("/")
+    return f"{base_url}{relative_url}"
+
+
 def start_l1_annotation_view(request, job_id):
     """
     (L1 Tab 按钮触发)
@@ -37,7 +52,8 @@ def start_l1_annotation_view(request, job_id):
     video_url = job.media.get_best_playback_url(encoding_profile=job.project.source_encoding_profile)
 
     # 2. 获取源字幕绝对路径
-    srt_url = job.media.source_subtitle.url if job.media.source_subtitle else ""
+    raw_srt_url = job.media.source_subtitle.url if job.media.source_subtitle else ""
+    srt_url = _build_full_media_url(raw_srt_url)
 
     logger.debug(f"DEBUG URL: FINAL URLs prepared for Subeditor: video_url={video_url}, srt_url={srt_url}")
 
@@ -68,7 +84,8 @@ def revise_l1_annotation_view(request, job_id):
     # 智能获取视频 URL (CDN 或本地)
     video_url = job.media.get_best_playback_url(encoding_profile=job.project.source_encoding_profile)
 
-    srt_url = job.l1_output_file.url if job.l1_output_file else ""
+    raw_srt_url = job.l1_output_file.url if job.l1_output_file else ""
+    srt_url = _build_full_media_url(raw_srt_url)
 
     job_id_param = job.id
     return_url_param = request.build_absolute_uri(

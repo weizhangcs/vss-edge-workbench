@@ -1,158 +1,256 @@
 {% extends "admin/base_site.html" %}
-{% load i18n admin_urls static unfold %}
+{% load i18n admin_urls static %}
 
-{# --- 引入 Tom Select (用于下拉框搜索) --- #}
+{# --- 1. 资源加载区 --- #}
 {% block extrahead %}
     {{ block.super }}
-    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <script src="{% static 'creative/js/libs/react.production.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/react-dom.production.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/dayjs.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/antd.min.js' %}"></script>
+    <script src="{% static 'creative/js/libs/babel.min.js' %}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ant-design-icons/4.7.0/index.umd.min.js"></script>
+
+    <link rel="stylesheet" href="{% static 'creative/css/factory.css' %}">
     <style>
-        /* 适配 Unfold/Tailwind 风格的微调 */
-        .ts-control {
-            border-radius: 0.5rem; /* rounded-lg */
-            padding: 0.75rem 1rem; /* py-3 px-4 */
-            border-color: #d1d5db; /* border-gray-300 */
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .ts-control.focus {
-            border-color: #93c5fd; /* ring-primary-300 */
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-        .ts-dropdown {
-            border-radius: 0.5rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            border: 1px solid #e5e7eb;
-        }
+        #content { padding: 0 !important; margin: 0 !important; }
+        /* [修改点] 这里的 CSS 也要同步改为浅紫色背景和紫色虚线边框 */
+        .ant-upload-drag { background-color: #faf5ff !important; border: 1px dashed #d8b4fe !important; }
+        .ant-upload-drag:hover { border-color: #9333ea !important; }
     </style>
 {% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto mt-10 mb-20">
 
-    {# --- 页面标题区 --- #}
-    <div class="flex items-center mb-8">
-        <div class="p-2 bg-primary-50 rounded-lg mr-4">
-            <span class="material-symbols-outlined text-primary-600 text-3xl">restore_page</span>
-        </div>
-        <div>
-            <h1 class="text-2xl font-bold text-gray-900">从 ZIP 包恢复标注项目</h1>
-            <p class="text-sm text-gray-500 mt-1">将导出的测试数据快速恢复到当前环境</p>
-        </div>
-    </div>
+{# --- 2. 数据注入区 --- #}
+<script>
+    window.DJANGO_URLS = {
+        changelist: "{% url 'admin:workflow_annotationproject_changelist' %}"
+    };
+</script>
 
-    <div class="bg-white shadow-lg rounded-xl border border-gray-100 overflow-hidden">
+<script id="asset-data" type="application/json">
+[
+    {% for asset in form.fields.target_asset.queryset %}
+    { "value": "{{ asset.id }}", "label": "{{ asset.title }} ({{ asset.created|date:'Y-m-d' }})" }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
 
-        {# --- 顶部提示区 --- #}
-        <div class="bg-blue-50 border-b border-blue-100 p-6">
-            <div class="flex items-start">
-                <div class="flex-shrink-0 pt-0.5">
-                    <span class="material-symbols-outlined text-blue-600 text-xl">info</span>
-                </div>
-                <div class="ml-4">
-                    <h3 class="text-base font-semibold text-blue-900">功能说明</h3>
-                    <div class="mt-2 text-sm text-blue-800 space-y-1.5 leading-relaxed">
-                        <p>此功能用于将已导出的标注数据（L1/L2/L3 产出物）挂载到当前环境。</p>
-                        <ul class="list-disc pl-5 space-y-1">
-                            <li>系统会自动解析 ZIP 包中的元数据 (Manifest)。</li>
-                            <li>系统将根据 <strong>媒体序号 (Sequence Number)</strong> 自动匹配子任务。</li>
-                            <li>如果目标媒资缺少对应的视频文件（如缺少 ep02），对应的标注数据将被自动忽略。</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {# --- 表单区域 --- #}
-        <form method="post" enctype="multipart/form-data" class="p-8">
-            {% csrf_token %}
-
-            {% if form.errors %}
-                <div class="mb-8 p-4 bg-red-50 rounded-lg border border-red-200 flex items-start">
-                    <span class="material-symbols-outlined text-red-600 mr-3 mt-0.5">error</span>
-                    <div class="text-sm text-red-800 font-medium">
-                        {{ form.errors }}
-                    </div>
-                </div>
-            {% endif %}
-
-            <div class="space-y-10">
-
-                {# 1. ZIP 文件上传 #}
-                <div class="form-group">
-                    <label for="{{ form.zip_file.id_for_label }}" class="block text-base font-semibold text-gray-800 mb-3">
-                        1. 选择项目导出包 (.zip) <span class="text-red-500">*</span>
-                    </label>
-
-                    <div class="relative group">
-                        <div class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-xl hover:border-primary-500 hover:bg-gray-50 transition-all cursor-pointer">
-                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                <span class="material-symbols-outlined text-gray-400 text-5xl mb-3 group-hover:text-primary-500 transition-colors">folder_zip</span>
-                                <p class="mb-2 text-sm text-gray-500">
-                                    <span class="font-semibold text-primary-600">点击上传</span> 或拖拽文件到此处
-                                </p>
-                                <p class="text-xs text-gray-400">仅支持标准的 VSS 导出包 (.zip)</p>
-
-                                {# 文件名回显区 #}
-                                <p id="file-name-display" class="mt-4 text-sm font-medium text-primary-700 h-6 px-3 py-0.5 bg-primary-50 rounded-full hidden"></p>
-                            </div>
-
-                            <input id="{{ form.zip_file.id_for_label }}" name="{{ form.zip_file.name }}" type="file" accept=".zip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required
-                                onchange="const name = this.files[0]?.name; const el = document.getElementById('file-name-display'); if(name){ el.innerText = name; el.classList.remove('hidden'); } else { el.classList.add('hidden'); }">
-                        </div>
-                    </div>
-                </div>
-
-                {# 2. 目标资产选择 (已移除图标，增加了搜索功能) #}
-                <div class="form-group">
-                    <label for="{{ form.target_asset.id_for_label }}" class="block text-base font-semibold text-gray-800 mb-3">
-                        2. 挂载目标资产 (Target Asset) <span class="text-red-500">*</span>
-                    </label>
-
-                    {# 关键修改：移除外层图标容器，直接渲染 Select 并由 JS 增强 #}
-                    <select name="{{ form.target_asset.name }}" id="{{ form.target_asset.id_for_label }}" required placeholder="-- 输入关键词搜索媒资 --">
-                        <option value="">-- 请选择要关联的媒资 --</option>
-                        {% for x, y in form.fields.target_asset.choices %}
-                            <option value="{{ x }}" {% if form.fields.target_asset.initial == x %}selected{% endif %}>{{ y }}</option>
-                        {% endfor %}
-                    </select>
-
-                    <p class="mt-3 text-sm text-gray-500 flex items-start">
-                        <span class="material-symbols-outlined text-sm mr-1.5 text-gray-400 mt-0.5">search</span>
-                        <span>支持搜索过滤。请确保所选资产下已存在对应的媒体文件（如 ep01, ep02...）。</span>
-                    </p>
-                </div>
-
-            </div>
-
-            {# --- 底部按钮区 --- #}
-            <div class="mt-12 pt-6 border-t border-gray-100 flex items-center justify-end gap-4">
-                <a href="{% url 'admin:workflow_annotationproject_changelist' %}"
-                   class="inline-flex items-center justify-center px-6 py-2.5 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-200 transition-colors">
-                    取消
-                </a>
-
-                <button type="submit"
-                        class="inline-flex items-center justify-center px-6 py-2.5 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors">
-                    <span class="material-symbols-outlined text-xl mr-2">rocket_launch</span>
-                    开始导入并关联
-                </button>
-            </div>
-        </form>
+{# --- 3. React 挂载点 --- #}
+<div id="react-root" class="bg-white min-h-screen p-6">
+    <div class="text-center pt-20">
+        <span class="text-gray-400">正在加载导入组件...</span>
     </div>
 </div>
 
-{# --- 初始化 Tom Select 脚本 --- #}
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        new TomSelect('#{{ form.target_asset.id_for_label }}', {
-            create: false,
-            sortField: {
-                field: "text",
-                direction: "asc"
+{# --- 4. React 业务代码 --- #}
+{% verbatim %}
+<script type="text/babel">
+    const { useState, useMemo } = React;
+    const { Steps, Upload, Select, Alert, Button, Typography, Card, message, ConfigProvider } = window.antd;
+    const { FolderOpenOutlined, InboxOutlined, SearchOutlined, InfoCircleOutlined } = window.icons;
+
+    const { Title, Text } = Typography;
+    const { Dragger } = Upload;
+
+    // [修改点] 定义 Unfold 风格的紫色主题变量
+    const THEME_COLOR = {
+        primary: '#9333ea',    // 主色 (Purple-600)
+        lightBg: '#faf5ff',    // 浅色背景 (Purple-50)
+        border: '#d8b4fe',     // 边框色 (Purple-300)
+    };
+
+    const ImportAnnotationProject = () => {
+        const assetOptions = useMemo(() => {
+            try {
+                return JSON.parse(document.getElementById('asset-data').textContent);
+            } catch (e) {
+                return [];
+            }
+        }, []);
+
+        const [fileList, setFileList] = useState([]);
+        const [targetAssetId, setTargetAssetId] = useState(null);
+        const [submitting, setSubmitting] = useState(false);
+
+        const uploadProps = {
+            name: 'zip_file',
+            multiple: false,
+            fileList: fileList,
+            accept: '.zip',
+            beforeUpload: (file) => {
+                setFileList([file]);
+                return false;
             },
-            placeholder: "请输入关键词搜索...",
-            allowEmptyOption: true,
-        });
-    });
+            onRemove: () => {
+                setFileList([]);
+            }
+        };
+
+        const handleSubmit = async () => {
+            if (fileList.length === 0) {
+                message.error('请先上传项目压缩包！');
+                return;
+            }
+            if (!targetAssetId) {
+                message.error('请选择关联的媒体资产！');
+                return;
+            }
+
+            setSubmitting(true);
+            const formData = new FormData();
+            formData.append('zip_file', fileList[0]);
+            formData.append('target_asset', targetAssetId);
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            formData.append('csrfmiddlewaretoken', csrfToken);
+
+            try {
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+
+                if (response.redirected) {
+                    message.success('导入成功！正在跳转...', 1.5, () => {
+                        window.location.href = response.url;
+                    });
+                } else if (!response.ok) {
+                    message.error('导入失败，请检查文件格式或重试。');
+                    setSubmitting(false);
+                } else {
+                     message.success('导入处理完成', 1.5, () => {
+                        window.location.href = window.DJANGO_URLS.changelist;
+                    });
+                }
+            } catch (error) {
+                console.error(error);
+                message.error('网络请求错误');
+                setSubmitting(false);
+            }
+        };
+
+        const stepItems = [
+            { title: '上传文件', status: fileList.length > 0 ? 'finish' : 'process' },
+            { title: '关联资产', status: targetAssetId ? 'finish' : 'wait' },
+            { title: '开始恢复', status: 'wait' },
+        ];
+
+        return (
+            <div className="flex justify-center items-start pt-4">
+                <Card
+                    bordered={false}
+                    className="w-full max-w-[900px] shadow-none"
+                    bodyStyle={{ padding: 0 }}
+                >
+                    {/* Header Region */}
+                    <div style={{ padding: '32px 0', backgroundColor: '#fff' }}>
+                        <div className="flex items-start" style={{ marginBottom: '32px' }}>
+                            {/* [修改点] 图标颜色改为紫色 */}
+                            <FolderOpenOutlined style={{ fontSize: '36px', color: THEME_COLOR.primary, marginRight: '20px', marginTop: '4px' }} />
+                            <div>
+                                <Title level={3} style={{ margin: 0, fontWeight: 'bold', fontSize: '24px' }}>
+                                    导入标注项目
+                                </Title>
+                                <Text type="secondary" style={{ fontSize: '14px' }}>
+                                    上传 ZIP 文件以恢复标注数据，并自动关联到媒体资产库。
+                                </Text>
+                            </div>
+                        </div>
+                        <div style={{ padding: '0 10px' }}>
+                            <Steps current={fileList.length > 0 ? (targetAssetId ? 2 : 1) : 0} items={stepItems} size="small" />
+                        </div>
+                    </div>
+
+                    {/* Body Region */}
+                    <div style={{ padding: '0', backgroundColor: '#fff' }}>
+                        <section style={{ marginBottom: '40px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: '#374151' }}>
+                                步骤 1：上传项目数据包
+                            </h3>
+                            {/* [修改点] Dragger 样式改为紫色系背景和边框 */}
+                            <Dragger {...uploadProps} style={{ padding: '40px 0', backgroundColor: THEME_COLOR.lightBg, border: `1px dashed ${THEME_COLOR.border}` }}>
+                                <p className="ant-upload-drag-icon">
+                                    {/* [修改点] 拖拽图标颜色 */}
+                                    <InboxOutlined style={{ color: THEME_COLOR.primary, fontSize: '48px' }} />
+                                </p>
+                                <p className="ant-upload-text" style={{ fontSize: '16px', fontWeight: 500, color: '#1f2937' }}>
+                                    点击或拖拽文件到此处上传
+                                </p>
+                                <p className="ant-upload-hint" style={{ color: '#6b7280' }}>
+                                    支持格式: .zip (需包含 manifest.json)
+                                </p>
+                            </Dragger>
+                        </section>
+
+                        <section>
+                            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: '#374151' }}>
+                                步骤 2：选择目标媒体资产
+                            </h3>
+                            <Select
+                                showSearch
+                                placeholder="请选择或搜索要关联的媒体资产..."
+                                optionFilterProp="children"
+                                size="large"
+                                style={{ width: '100%' }}
+                                onChange={(value) => setTargetAssetId(value)}
+                                filterOption={(input, option) =>
+                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                }
+                                options={assetOptions}
+                            />
+
+                            <Alert
+                                style={{ marginTop: '24px', borderRadius: '8px' }}
+                                message={<span style={{ fontWeight: 600 }}>关联匹配逻辑说明</span>}
+                                description={
+                                    <span style={{ color: '#4b5563' }}>
+                                        系统将根据 <b>媒体文件序号 (Sequence)</b> 自动匹配并导入数据。请确保所选资产包含对应的媒体文件（如 EP01, EP02...）。若找不到对应序号，相关数据将被跳过。
+                                    </span>
+                                }
+                                type="info"
+                                showIcon
+                                icon={<InfoCircleOutlined />}
+                            />
+                        </section>
+                    </div>
+
+                    {/* Footer Region */}
+                    <div style={{ padding: '40px 0', backgroundColor: '#fff', borderTop: 'none', display: 'flex', justifyContent: 'flex-start', gap: '12px' }}>
+                         <Button
+                            type="primary"
+                            size="large"
+                            onClick={handleSubmit}
+                            loading={submitting}
+                            disabled={!fileList.length || !targetAssetId}
+                            style={{ minWidth: '160px' }}
+                        >
+                            {submitting ? '正在恢复数据...' : '确认并开始导入'}
+                        </Button>
+                        <Button size="large" onClick={() => window.history.back()}>
+                            取消
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+        );
+    };
+
+    const rootNode = document.getElementById('react-root');
+    if (rootNode) {
+        const root = ReactDOM.createRoot(rootNode);
+        // [修改点] 使用 ConfigProvider 包裹应用，设置全局紫色主题
+        root.render(
+            <ConfigProvider theme={{ token: { colorPrimary: '#9333ea' } }}>
+                <ImportAnnotationProject />
+            </ConfigProvider>
+        );
+    }
 </script>
+{% endverbatim %}
+
+<div style="display:none">
+    {% csrf_token %}
+</div>
 {% endblock %}

@@ -26,13 +26,41 @@ logger = logging.getLogger(__name__)
 
 # --- 定义一个简单的上传表单 ---
 class ImportProjectForm(forms.Form):
-    zip_file = forms.FileField(label="项目导出包 (.zip)")
+    zip_file = forms.FileField(
+        label="1. 上传项目导出包 (.zip)",
+        widget=forms.FileInput(
+            attrs={
+                # 使用 Tailwind 样式美化文件输入框
+                "class": (
+                    "block w-full text-sm text-gray-900 border border-gray-300 "
+                    "rounded-lg cursor-pointer bg-gray-50 focus:outline-none "
+                    "dark:bg-gray-700 dark:border-gray-600 "
+                    "dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500"
+                ),
+                "accept": ".zip",  # 限制只能选 zip
+            }
+        ),
+    )
+
     target_asset = forms.ModelChoiceField(
         queryset=Asset.objects.all().order_by("-created"),
-        label="挂载目标资产 (Target Asset)",
+        label="2. 选择挂载目标资产 (Target Asset)",
         required=True,
         empty_label="-- 请选择要关联的媒资 --",
-        help_text="<span class='text-red-500'>注意：</span>系统将尝试根据“媒体文件序号 (Sequence)”自动恢复标注任务。请确保所选资产下已存在对应的媒体文件（如 ep01, ep02...）。",  # noqa: 121
+        # 将 help_text 留空，我们会在模板中使用专门的 Alert 组件来展示指引
+        help_text="",
+        widget=forms.Select(
+            attrs={
+                # 使用 Tailwind 样式美化下拉框
+                "class": (
+                    "bg-gray-50 border border-gray-300 text-gray-900 text-sm "
+                    "rounded-lg focus:ring-blue-500 focus:border-blue-500 "
+                    "block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 "
+                    "dark:placeholder-gray-400 dark:text-white "
+                    "dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                ),
+            }
+        ),
     )
 
 
@@ -190,6 +218,9 @@ class AnnotationProjectAdmin(ModelAdmin):
     # --- 搜索与过滤 ---
     search_fields = ("name", "asset__title")  # 允许按项目名称和关联的资产标题搜索
     list_filter = ("status",)  # 允许按项目状态过滤
+
+    # [核心修复] 增加分页
+    list_per_page = 20
 
     # --- Fieldset 定义 ---
     # base_fieldsets 定义了所有 Tab 共享的“项目信息”
