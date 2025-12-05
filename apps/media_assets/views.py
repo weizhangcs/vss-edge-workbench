@@ -38,12 +38,15 @@ def batch_file_upload_view(request, asset_id):
 def batch_upload_page_view(request, asset_id):
     try:
         asset = Asset.objects.get(id=asset_id)
+
+        # [核心修复] 使用 admin.site.each_context(request) 获取标准上下文
+        # 这包含了 available_apps (侧边栏)、site_header、site_title 等关键数据
         context = {
-            # --- 核心修复：模板需要一个名为 'media' 的变量 ---
+            **admin.site.each_context(request),
+            # 业务数据
             "media": asset,
             "opts": Asset._meta,
-            "site_header": admin.site.site_header,
-            "site_title": admin.site.site_title,
+            # 页面控制开关
             "show_save": False,
             "show_save_and_continue": False,
             "show_save_and_add_another": False,
