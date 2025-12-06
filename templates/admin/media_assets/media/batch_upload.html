@@ -1,34 +1,22 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls static %}
 
-{# --- 1. 资源加载区 (保持与其他 React 页面一致) --- #}
+{# 1. 样式引入 #}
 {% block extrahead %}
     {{ block.super }}
-    {# React 基础库 #}
-    <script src="{% static 'creative/js/libs/react.production.min.js' %}"></script>
-    <script src="{% static 'creative/js/libs/react-dom.production.min.js' %}"></script>
-    <script src="{% static 'creative/js/libs/dayjs.min.js' %}"></script>
-    <script src="{% static 'creative/js/libs/antd.min.js' %}"></script>
-    <script src="{% static 'creative/js/libs/babel.min.js' %}"></script>
-    <script src="{% static 'creative/js/libs/index.umd.min.js' %}"></script>
 
-    {# 引入统一样式 #}
-    <link rel="stylesheet" href="{% static 'creative/css/factory.css' %}">
+    {# 沉浸式布局微调 #}
     <style>
-        #content { padding: 0 !important; margin: 0 !important; }
-        /* 覆盖 Antd Upload 样式以匹配紫色主题 */
-        .ant-upload-drag { background-color: #faf5ff !important; border: 1px dashed #d8b4fe !important; }
-        .ant-upload-drag:hover { border-color: #9333ea !important; }
-        /* 隐藏掉 Django admin 默认的一些 header 以获得沉浸式体验 */
         .breadcrumbs { display: none; }
+        /* 避免在 React 加载前看到空白 */
+        #react-root { min-height: 80vh; }
     </style>
 {% endblock %}
 
 {% block content %}
 
-{# --- 2. 数据注入区 --- #}
+{# 2. 数据桥接: 后端 -> 前端 #}
 <script>
-    // 将 Django 变量注入到全局 window 对象供 React 使用
     window.SERVER_CONTEXT = {
         mediaId: "{{ media.id }}",
         mediaTitle: "{{ media.title }}",
@@ -41,208 +29,20 @@
     };
 </script>
 
-{# --- 3. React 挂载点 --- #}
-<div id="react-root" class="bg-white min-h-screen p-6">
-    <div class="text-center pt-20">
-        <span class="text-gray-400">正在加载批量上传组件...</span>
+{# 3. 挂载点 #}
+<div id="react-root" class="bg-white p-6">
+    <div class="text-center pt-32">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        <p class="mt-4 text-gray-400">正在加载批量上传组件...</p>
     </div>
 </div>
 
-{# --- 4. React 业务代码 --- #}
-{% verbatim %}
-<script type="text/babel">
-    const { useState, useMemo } = React;
-    const { Steps, Upload, Button, Typography, Card, message, ConfigProvider, Alert, List, Avatar } = window.antd;
-    const { CloudUploadOutlined, InboxOutlined, FileTextOutlined, VideoCameraOutlined, CheckCircleOutlined, InfoCircleOutlined } = window.icons;
+{# 4. 引用 Vite 构建产物 #}
+<script type="module" src="{% static 'js/bundles/media-batch-upload.js' %}"></script>
 
-    const { Title, Text } = Typography;
-    const { Dragger } = Upload;
-
-    // [统一设计] 定义紫色主题变量 (Sync with ImportAnnotationProject)
-    const THEME_COLOR = {
-        primary: '#9333ea',    // 主色 (Purple-600)
-        lightBg: '#faf5ff',    // 浅色背景 (Purple-50)
-        border: '#d8b4fe',     // 边框色 (Purple-300)
-    };
-
-    const BatchUploadApp = () => {
-        // 从全局上下文获取数据
-        const { mediaTitle, urls } = window.SERVER_CONTEXT;
-        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
-
-        // 状态管理
-        const [fileList, setFileList] = useState([]);
-        const [isProcessing, setIsProcessing] = useState(false);
-
-        // 计算属性：是否有文件正在上传
-        const isUploading = useMemo(() => {
-            return fileList.some(file => file.status === 'uploading');
-        }, [fileList]);
-
-        // 计算属性：是否所有文件都上传成功且列表不为空
-        const canStartIngest = useMemo(() => {
-            return fileList.length > 0 &&
-                   fileList.every(file => file.status === 'done') &&
-                   !isUploading;
-        }, [fileList, isUploading]);
-
-        // Upload 组件配置
-        const uploadProps = {
-            name: 'file',
-            multiple: true,
-            action: urls.uploadApi,
-            headers: {
-                'X-CSRFToken': csrfToken
-            },
-            accept: '.mp4,.mov,.srt',
-            onChange(info) {
-                const { status } = info.file;
-
-                if (status === 'done') {
-                    message.success(`${info.file.name} 上传成功`);
-                } else if (status === 'error') {
-                    message.error(`${info.file.name} 上传失败`);
-                }
-
-                // 更新列表状态
-                setFileList([...info.fileList]);
-            },
-            onDrop(e) {
-                console.log('Dropped files', e.dataTransfer.files);
-            },
-            // 自定义显示文件列表项的图标
-            showUploadList: {
-                showRemoveIcon: true,
-                showDownloadIcon: false,
-            },
-            itemRender: (originNode, file) => {
-                // 这里可以自定义列表渲染，暂时使用默认 Antd 样式
-                return originNode;
-            }
-        };
-
-        // 处理点击“开始处理”
-        const handleStartProcessing = () => {
-            setIsProcessing(true);
-            message.loading({ content: '正在启动后台处理任务...', key: 'process_msg' });
-
-            // 直接跳转到触发 URL，由 Django View 处理逻辑并重定向
-            // 这种方式最简单，不需要前端处理复杂的异步任务逻辑
-            setTimeout(() => {
-                window.location.href = urls.triggerIngest;
-            }, 800);
-        };
-
-        // 步骤条配置
-        const stepItems = [
-            { title: '上传文件', status: fileList.length > 0 ? (isUploading ? 'process' : 'finish') : 'process' },
-            { title: '文件校验', status: canStartIngest ? 'finish' : 'wait' },
-            { title: '后台处理', status: 'wait' },
-        ];
-
-        return (
-            <div className="flex justify-center items-start pt-4">
-                <Card
-                    bordered={false}
-                    className="w-full max-w-[900px] shadow-none"
-                    bodyStyle={{ padding: 0 }}
-                >
-                    {/* Header Region */}
-                    <div style={{ padding: '32px 0', backgroundColor: '#fff' }}>
-                        <div className="flex items-start" style={{ marginBottom: '32px' }}>
-                            <CloudUploadOutlined style={{ fontSize: '36px', color: THEME_COLOR.primary, marginRight: '20px', marginTop: '4px' }} />
-                            <div>
-                                <Title level={3} style={{ margin: 0, fontWeight: 'bold', fontSize: '24px' }}>
-                                    批量上传资源
-                                </Title>
-                                <Text type="secondary" style={{ fontSize: '14px' }}>
-                                    为资产 <b style={{color: '#374151'}}>{mediaTitle}</b> 上传视频与字幕文件。
-                                </Text>
-                            </div>
-                        </div>
-                        <div style={{ padding: '0 10px' }}>
-                            <Steps current={canStartIngest ? 1 : 0} items={stepItems} size="small" />
-                        </div>
-                    </div>
-
-                    {/* Body Region */}
-                    <div style={{ padding: '0', backgroundColor: '#fff' }}>
-
-                        {/* 提示信息 */}
-                        <Alert
-                            style={{ marginBottom: '24px', borderRadius: '8px' }}
-                            message="文件名匹配规则"
-                            description="视频和字幕的文件名主干必须保持一致（例如 ep01.mp4 和 ep01.srt），否则无法自动关联。"
-                            type="info"
-                            showIcon
-                            icon={<InfoCircleOutlined />}
-                        />
-
-                        {/* 核心上传区 */}
-                        <Dragger
-                            {...uploadProps}
-                            fileList={fileList}
-                            style={{ padding: '40px 0', backgroundColor: THEME_COLOR.lightBg, border: `1px dashed ${THEME_COLOR.border}` }}
-                        >
-                            <p className="ant-upload-drag-icon">
-                                <InboxOutlined style={{ color: THEME_COLOR.primary, fontSize: '48px' }} />
-                            </p>
-                            <p className="ant-upload-text" style={{ fontSize: '16px', fontWeight: 500, color: '#1f2937' }}>
-                                点击或拖拽文件到此处
-                            </p>
-                            <p className="ant-upload-hint" style={{ color: '#6b7280' }}>
-                                支持批量上传 .mp4, .mov, .srt 文件
-                            </p>
-                        </Dragger>
-
-                        {/* 文件列表摘要 (可选，Antd Upload 自带列表，这里可以放一些统计信息) */}
-                        {fileList.length > 0 && (
-                            <div style={{ marginTop: '16px', textAlign: 'right', color: '#6b7280', fontSize: '12px' }}>
-                                已选择 {fileList.length} 个文件
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Footer Region */}
-                    <div style={{ padding: '40px 0', backgroundColor: '#fff', borderTop: 'none', display: 'flex', justifyContent: 'flex-start', gap: '12px' }}>
-                        <Button
-                            type="primary"
-                            size="large"
-                            onClick={handleStartProcessing}
-                            loading={isProcessing}
-                            disabled={!canStartIngest}
-                            icon={<CheckCircleOutlined />}
-                            style={{ minWidth: '180px' }}
-                        >
-                            {isUploading ? '正在上传...' : '确认并开始处理'}
-                        </Button>
-
-                        <Button
-                            size="large"
-                            onClick={() => window.location.href = urls.backToChange}
-                        >
-                            返回编辑页
-                        </Button>
-                    </div>
-                </Card>
-            </div>
-        );
-    };
-
-    const rootNode = document.getElementById('react-root');
-    if (rootNode) {
-        const root = ReactDOM.createRoot(rootNode);
-        // 使用 ConfigProvider 设置统一主题
-        root.render(
-            <ConfigProvider theme={{ token: { colorPrimary: '#9333ea' } }}>
-                <BatchUploadApp />
-            </ConfigProvider>
-        );
-    }
-</script>
-{% endverbatim %}
-
+{# CSRF Token 占位符 (Antd Dragger 会读取 DOM 中的这个 input) #}
 <div style="display:none">
     {% csrf_token %}
 </div>
+
 {% endblock %}

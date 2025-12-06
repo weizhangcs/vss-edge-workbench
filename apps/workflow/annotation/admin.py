@@ -11,7 +11,7 @@ from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
-from unfold.decorators import display
+from unfold.decorators import action, display
 from unfold.widgets import UnfoldAdminTextareaWidget
 
 from apps.media_assets.models import Asset
@@ -293,6 +293,14 @@ class AnnotationProjectAdmin(ModelAdmin):
         except Exception as e:
             self.message_user(request, f"导出失败: {e}", level=messages.ERROR)
 
+    # --- 按钮具体实现 ---
+    @action(description="导入项目 (ZIP)", url_path="import-wizard", icon="file_upload")
+    def open_import_wizard(self, request: HttpRequest):
+        """
+        列表页按钮点击后的回调：直接重定向到现有的导入视图 URL
+        """
+        return redirect("admin:workflow_annotationproject_import")
+
     # --- 2. 导入功能 (Custom View) ---
     def get_urls(self):
         """
@@ -368,16 +376,10 @@ class AnnotationProjectAdmin(ModelAdmin):
         return self.readonly_fields
 
     def add_view(self, request, form_url="", extra_context=None):
-        """
-        覆盖 add_view 以防止被 Tab 视图污染状态。
-        这能确保 "Add" 页面总是显示正确的 fieldsets 和默认模板。
-        """
-        # 1. 强制重置为 'add' 视图该用的 fieldsets
-        self.fieldsets = self.base_fieldsets
-        # 2. 强制重置为 Unfold 默认的 change_form 模板
-        self.change_form_template = None
-
-        return super().add_view(request, form_url=form_url, extra_context=extra_context)
+        # self.fieldsets = self.base_fieldsets
+        # 指定我们即将创建的新模板
+        self.add_form_template = "admin/workflow/project/annotation/add_form.html"
+        return super().add_view(request, form_url, extra_context)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """

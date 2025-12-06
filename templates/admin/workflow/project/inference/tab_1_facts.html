@@ -1,38 +1,15 @@
 {% extends "admin/change_form.html" %}
-{% load i18n admin_urls unfold %}
+{% load i18n admin_urls static %}
 
 {% block after_field_sets %}
+{# 1. 数据注入 (直接读取 admin.py 传过来的 JSON 字符串) #}
+<script>
+    window.SERVER_CONTEXT = {{ server_data_json|safe }};
+</script>
 
-{# --- 1. 角色属性识别 (FACTS) 触发器 --- #}
-<fieldset class="module aligned mt-6">
-    <h2 class="text-xl font-semibold mb-4">第一步：识别角色属性</h2>
+{# 2. 挂载点 #}
+<div id="react-root-facts" class="mt-6 bg-white min-h-[400px]"></div>
 
-    {% if character_selection_form %}
-        {% csrf_token %} <div class="p-4 border rounded-md shadow-sm bg-white">
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                {{ character_selection_form.characters.label }}:
-              </label>
-              <div class="mt-2 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {% for checkbox in character_selection_form.characters %}
-                   <label for="{{ checkbox.id_for_label }}" class="flex items-center space-x-2 p-2 border rounded-md hover:bg-gray-50 cursor-pointer">
-                       {{ checkbox.tag }}
-                       <span class="font-medium">{{ checkbox.choice_label }}</span>
-                   </label>
-                {% endfor %}
-              </div>
-            </div>
-
-            <div class="mt-4 border-t pt-4 flex justify-start">
-                <button type="submit" class="button variant-primary">
-                  ▶️ 启动“角色属性识别”任务
-                </button>
-            </div>
-        </div>
-
-    {% else %}
-        {% endif %}
-</fieldset>
-
-{# --- 2. FACTS 子任务列表 (保持不变) --- #}
+{# 3. 引用 JS (type="module") #}
+<script type="module" src="{% static 'js/bundles/inference-facts.js' %}"></script>
 {% endblock %}

@@ -196,6 +196,11 @@ else:
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = BASE_DIR / "media_root"
 
+# 混排React/Ant Design的引用目录
+STATICFILES_DIRS = [
+    BASE_DIR / "static_build",
+]
+
 # [修改前] 依赖 LOCAL_MEDIA_URL_BASE，导致数据库存储了硬编码的绝对路径
 # STATIC_URL = f"{LOCAL_MEDIA_URL_BASE}/static/"
 # MEDIA_URL = f"{LOCAL_MEDIA_URL_BASE}/media/"
@@ -326,11 +331,6 @@ UNFOLD = {
                         "title": "标注项目",
                         "icon": "rate_review",
                         "link": reverse_lazy("admin:workflow_annotationproject_changelist"),
-                    },
-                    {
-                        "title": "导入标注项目 (ZIP)",
-                        "icon": "file_upload",  # 使用 Material Icon 'file_upload'
-                        "link": reverse_lazy("admin:workflow_annotationproject_import"),
                     },
                     {
                         "title": "推理项目",

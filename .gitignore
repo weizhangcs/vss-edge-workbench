@@ -42,6 +42,4 @@ htmlcov/
 # 统一忽略所有在 media_root 目录下的用户上传和系统生成的文件
 /media_root/
 /staticfiles/
-
-# 您用于生成文件清单的临时文件
-files.txt
+/static_build/

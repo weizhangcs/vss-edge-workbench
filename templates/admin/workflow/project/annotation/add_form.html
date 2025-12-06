@@ -1,0 +1,42 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{# [核心修复] 将 block 名称从 'before_field_sets' 改为 'field_sets' #}
+{% block field_sets %}
+
+    {# 1. 你的自定义导入引导区 (插在 fieldsets 之前) #}
+    <div class="mb-8 p-6 bg-purple-50 border border-purple-200 rounded-lg shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+
+        <div class="flex-1">
+            <h3 class="text-lg font-semibold text-purple-900 flex items-center gap-2">
+                <span class="material-symbols-outlined">restore_page</span>
+                需要恢复已有项目？
+            </h3>
+            <p class="mt-1 text-sm text-purple-700">
+                如果您持有之前导出的项目数据包 (.zip)，可以通过导入向导快速恢复标注数据和进度，无需重新创建。
+            </p>
+        </div>
+
+        <div class="flex-shrink-0">
+            <a href="{% url 'admin:workflow_annotationproject_import' %}"
+               class="inline-flex items-center px-4 py-2 bg-white border border-purple-300 rounded-md font-semibold text-xs text-purple-700 uppercase tracking-widest shadow-sm hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition ease-in-out duration-150">
+                <span class="material-symbols-outlined text-lg mr-2">file_upload</span>
+                前往导入向导
+            </a>
+        </div>
+    </div>
+
+    {# 视觉分隔线 #}
+    <div class="relative mb-8">
+        <div class="absolute inset-0 flex items-center" aria-hidden="true">
+            <div class="w-full border-t border-gray-200"></div>
+        </div>
+        <div class="relative flex justify-center">
+            <span class="bg-white px-3 text-sm text-gray-500 font-medium">或者：新建空白项目</span>
+        </div>
+    </div>
+
+    {# 2. [关键] 调用父级内容，渲染原本的表单字段 #}
+    {{ block.super }}
+
+{% endblock %}
