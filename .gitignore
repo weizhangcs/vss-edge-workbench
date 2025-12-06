@@ -43,3 +43,4 @@ htmlcov/
 /media_root/
 /staticfiles/
 /static_build/
+/frontend/node_modules/
