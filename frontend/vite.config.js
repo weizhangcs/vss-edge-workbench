@@ -21,10 +21,9 @@ export default defineConfig({
                 'creative-director': path.resolve(__dirname, 'src/entries/creative_director.jsx'),
                 'inference-facts': path.resolve(__dirname, 'src/entries/inference_facts.jsx'),
                 'inference-rag': path.resolve(__dirname, 'src/entries/inference_rag.jsx'),
+                'annotation-workbench': path.resolve(__dirname, 'src/entries/annotation_workbench.jsx'),
             },
             output: {
-                // 3. 输出结构规划
-                // 最终文件会位于: static_build/js/bundles/media-batch-upload.js
                 entryFileNames: 'js/bundles/[name].js',
                 chunkFileNames: 'js/chunks/[name]-[hash].js',
                 assetFileNames: (assetInfo) => {

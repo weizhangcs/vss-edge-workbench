@@ -1,0 +1,212 @@
+/* frontend/src/features/annotation/Workbench/style.css */
+
+/* --- 1. 全局布局容器 --- */
+.wb-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    background-color: #f3f4f6;
+}
+
+.wb-header {
+    height: 64px;
+    flex-shrink: 0;
+    background-color: white;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 50;
+}
+
+/* 主体区域 (改为上下布局) */
+.wb-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column; /* 关键变化：垂直排列 */
+    overflow: hidden;
+    height: calc(100vh - 64px);
+}
+
+/* --- 上半部分：舞台区 (Stage) --- */
+.wb-stage-pane {
+    flex: 1; /* 占据剩余高度 */
+    display: flex;
+    flex-direction: row; /* 内部左右分栏：视频左，属性右 */
+    min-height: 0; /* 关键：防止 flex 子元素溢出 */
+    background-color: #000;
+}
+
+/* 视频区域 */
+.wb-video-area {
+    flex: 1;
+    position: relative;
+    background-color: black;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* 属性检查器 (右侧边栏) */
+.wb-inspector-area {
+    width: 320px; /* 固定宽度 */
+    flex-shrink: 0;
+    background-color: white;
+    border-left: 1px solid #374151;
+    overflow-y: auto;
+    z-index: 40;
+}
+
+/* --- 下半部分：时间轴区 (Timeline) --- */
+.wb-timeline-pane {
+    height: 320px; /* 固定高度，或者可以用 flex-basis */
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background-color: #111827; /* gray-900 */
+    border-top: 1px solid #374151;
+    position: relative;
+    z-index: 30;
+}
+
+.wb-timeline-toolbar {
+    height: 40px;
+    background-color: #1f2937;
+    border-bottom: 1px solid #374151;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    color: #9ca3af;
+    font-size: 12px;
+}
+
+.wb-timeline-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* --- 2. Timeline 组件样式 (保持不变) --- */
+.timeline-container {
+    width: 100%;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background-color: #111827;
+    position: relative;
+    user-select: none;
+}
+
+.timeline-inner-wrapper {
+    height: 100%;
+    position: relative;
+}
+
+.timeline-ruler {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: #1f2937;
+    border-bottom: 1px solid #374151;
+    cursor: pointer;
+}
+
+.timeline-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid #6b7280;
+    padding-left: 4px;
+    font-size: 10px;
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.timeline-track-area {
+    padding-top: 8px;
+}
+
+.timeline-track {
+    margin-bottom: 8px;
+    position: relative;
+}
+
+.timeline-track-bg {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(31, 41, 55, 0.5);
+    border-top: 1px solid rgba(55, 65, 81, 0.5);
+    border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+}
+
+.timeline-track-label {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    width: 96px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    background-color: rgba(31, 41, 55, 0.8);
+    backdrop-filter: blur(4px);
+    border-right: 1px solid #374151;
+    font-size: 12px;
+    color: #9ca3af;
+    font-weight: bold;
+}
+
+.timeline-clip {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 12px;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+.timeline-clip:hover {
+    filter: brightness(1.1);
+}
+
+.timeline-cursor {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #ef4444;
+    z-index: 30;
+    pointer-events: none;
+}
+
+.timeline-cursor-head {
+    position: absolute;
+    top: 0;
+    left: -6px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid #ef4444;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background-color: #111827;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #4b5563;
+    border-radius: 4px;
+}

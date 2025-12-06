@@ -330,6 +330,11 @@ class AnnotationProjectAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.tab_l3_view),
                 name="workflow_annotationproject_tab_l3",
             ),
+            path(
+                "workbench-test/",
+                self.admin_site.admin_view(self.workbench_test_view),
+                name="workflow_annotationproject_workbench_test",
+            ),
         ]
         return custom_urls + urls
 
@@ -532,6 +537,14 @@ class AnnotationProjectAdmin(ModelAdmin):
             form_url="",
             extra_context=context,
         )
+
+    def workbench_test_view(self, request):
+        # 这是一个全屏页面，我们不继承 admin/change_form.html，而是用一个干净的模板
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "标注工作台",
+        }
+        return render(request, "admin/workflow/project/annotation/workbench.html", context)
 
     def changelist_view(self, request, extra_context=None):
         """
