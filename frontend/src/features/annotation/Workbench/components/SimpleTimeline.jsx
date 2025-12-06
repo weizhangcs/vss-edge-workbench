@@ -1,27 +1,41 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Tooltip } from 'antd';
 import _ from 'lodash';
+import Waveform from './Waveform';
 import '../style.css';
 
 const TRACK_HEIGHT = 40;
 const HEADER_HEIGHT = 30;
+const WAVEFORM_HEIGHT = 60;
+
+const getRulerStep = (scale) => {
+    const minSpacing = 60;
+    const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 300, 600];
+    for (const step of steps) {
+        if (step * scale >= minSpacing) return step;
+    }
+    return 600;
+};
 
 const SimpleTimeline = ({
                             currentTime = 0,
                             duration = 600,
                             tracks = [],
+                            scale = 20,
                             onSeek,
-                            onUpdate, // [新增] 父组件传入的更新回调
-                            // [新增] 接收选中状态和选中回调
+                            onUpdate,
+                            onScaleChange,
                             selectedActionId,
-                            onSelect
+                            onSelect,
+                            onCreate, // [新增] 创建回调
+                            videoUrl
                         }) => {
     const containerRef = useRef(null);
-    const pixelsPerSecond = 20;
-    const totalWidth = Math.max(duration * pixelsPerSecond, 1000);
+    const totalWidth = Math.max(duration * scale, 1000);
 
-    // [新增] 拖拽状态
-    const [draggingAction, setDraggingAction] = useState(null); // { trackId, actionId, startX, originalStart, originalEnd }
+    const [draggingAction, setDraggingAction] = useState(null);
+    // [新增] 创建状态: { trackId, startX, currentX }
+    const [creatingAction, setCreatingAction] = useState(null);
 
     // --- 1. 标尺点击 (Seek) ---
     const handleRulerClick = (e) => {
@@ -29,71 +43,149 @@ const SimpleTimeline = ({
         const rect = containerRef.current.getBoundingClientRect();
         const scrollLeft = containerRef.current.scrollLeft;
         const clickX = e.clientX - rect.left + scrollLeft;
-        const newTime = Math.max(0, clickX / pixelsPerSecond);
+        const validX = Math.max(0, clickX);
+        const newTime = validX / scale;
         if (onSeek) onSeek(newTime);
     };
 
+    // --- 2. 滚轮缩放 ---
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const onWheel = (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const zoomSensitivity = 0.001;
+                const newScale = Math.max(1, Math.min(200, scale * (1 - e.deltaY * zoomSensitivity)));
+                if (onScaleChange) onScaleChange(newScale);
+            }
+        };
+        container.addEventListener('wheel', onWheel, { passive: false });
+        return () => container.removeEventListener('wheel', onWheel);
+    }, [scale, onScaleChange]);
+
     const renderRuler = () => {
-        const step = 5;
+        const step = getRulerStep(scale);
         const count = Math.ceil(duration / step);
-        return Array.from({ length: count }).map((_, i) => {
+        return Array.from({ length: count + 1 }).map((_, i) => {
             const time = i * step;
+            const left = time * scale;
             return (
-                <div key={i} className="timeline-tick" style={{ left: time * pixelsPerSecond }}>
-                    {time}s
+                <div key={i} className="timeline-tick" style={{ left }}>
+                    {step < 1 ? time.toFixed(1) : time}s
                 </div>
             );
         });
     };
 
-    // --- 2. 核心拖拽逻辑 ---
+    // --- 3. 交互逻辑 (拖拽 Move/Resize & 画框 Create) ---
 
-    // A. 开始拖拽 (MouseDown)
-    const handleClipMouseDown = (e, trackId, action) => {
-        e.stopPropagation(); // 防止触发 Seek
-
+    // A. 点击已有片段 -> 准备移动/调整
+    const handleClipMouseDown = (e, trackId, action, type) => {
+        e.stopPropagation(); // 阻止冒泡，防止触发轨道点击
+        e.preventDefault();
         setDraggingAction({
             trackId,
             actionId: action.id,
             startX: e.clientX,
             originalStart: action.start,
-            originalEnd: action.end
+            originalEnd: action.end,
+            type
         });
+        if (type === 'move' && onSelect) onSelect(action);
     };
 
-    // B. 处理移动 (MouseMove) - 使用 useEffect 绑定到全局
+    // B. 点击轨道空白处 -> 准备创建
+    const handleTrackMouseDown = (e, trackId) => {
+        // 如果点的是轨道背景
+        const rect = containerRef.current.getBoundingClientRect();
+        const scrollLeft = containerRef.current.scrollLeft;
+        // 记录相对于 Timeline 内容区域的 X 坐标
+        const absoluteX = e.clientX - rect.left + scrollLeft;
+
+        setCreatingAction({
+            trackId,
+            startX: e.clientX, // 屏幕坐标用于计算位移
+            startAbsoluteX: absoluteX, // 绝对坐标用于确定起始点
+            currentX: e.clientX
+        });
+
+        // 点击空白处，取消选中
+        if (onSelect) onSelect(null);
+    };
+
+    // C. 全局移动处理
     useEffect(() => {
         const handleMouseMove = (e) => {
-            if (!draggingAction) return;
+            // Case 1: 正在调整已有片段
+            if (draggingAction) {
+                const deltaX = e.clientX - draggingAction.startX;
+                const deltaTime = deltaX / scale;
+                const MIN_DURATION = 0.2;
 
-            const deltaX = e.clientX - draggingAction.startX;
-            const deltaTime = deltaX / pixelsPerSecond;
+                let newStart = draggingAction.originalStart;
+                let newEnd = draggingAction.originalEnd;
 
-            // 计算新时间 (限制不能小于0)
-            let newStart = Math.max(0, draggingAction.originalStart + deltaTime);
-            let newEnd = Math.max(0, draggingAction.originalEnd + deltaTime);
+                if (draggingAction.type === 'move') {
+                    const dur = draggingAction.originalEnd - draggingAction.originalStart;
+                    newStart = Math.max(0, draggingAction.originalStart + deltaTime);
+                    newEnd = newStart + dur;
+                } else if (draggingAction.type === 'left') {
+                    newStart = Math.min(Math.max(0, draggingAction.originalStart + deltaTime), draggingAction.originalEnd - MIN_DURATION);
+                } else if (draggingAction.type === 'right') {
+                    newEnd = Math.max(draggingAction.originalStart + MIN_DURATION, draggingAction.originalEnd + deltaTime);
+                }
 
-            // 实时更新本地数据 (为了流畅性，我们直接修改 tracks 副本并通知父组件)
-            // 注意：这里频繁调用 onUpdate 可能会导致父组件重绘，生产环境通常会用防抖或只在 MouseUp 时提交
-            // 但为了演示“实时跟随”，我们先直接更新
-            const newTracks = _.cloneDeep(tracks);
-            const track = newTracks.find(t => t.id === draggingAction.trackId);
-            const action = track.actions.find(a => a.id === draggingAction.actionId);
-
-            if (action) {
-                action.start = newStart;
-                action.end = newEnd;
-                onUpdate(newTracks);
+                const newTracks = _.cloneDeep(tracks);
+                const track = newTracks.find(t => t.id === draggingAction.trackId);
+                if (track) {
+                    const action = track.actions.find(a => a.id === draggingAction.actionId);
+                    if (action) {
+                        action.start = newStart;
+                        action.end = newEnd;
+                        onUpdate(newTracks);
+                    }
+                }
+            }
+            // Case 2: 正在画新片段 (Creating)
+            else if (creatingAction) {
+                setCreatingAction(prev => ({
+                    ...prev,
+                    currentX: e.clientX
+                }));
             }
         };
 
         const handleMouseUp = () => {
+            // Case 1: 结束调整
             if (draggingAction) {
-                setDraggingAction(null); // 结束拖拽
+                setDraggingAction(null);
+            }
+            // Case 2: 结束创建 -> 提交数据
+            else if (creatingAction) {
+                const deltaX = creatingAction.currentX - creatingAction.startX;
+                // 只有拖动距离超过一定阈值才算创建，避免误触
+                if (Math.abs(deltaX) > 5) {
+                    // 计算 Start / End
+                    // 注意：可能向左拖，也可能向右拖
+                    const x1 = creatingAction.startAbsoluteX;
+                    const x2 = creatingAction.startAbsoluteX + deltaX;
+
+                    const startPixel = Math.min(x1, x2);
+                    const endPixel = Math.max(x1, x2);
+
+                    const startTime = Math.max(0, startPixel / scale);
+                    const endTime = Math.max(0, endPixel / scale);
+
+                    if (onCreate && (endTime - startTime > 0.1)) {
+                        onCreate(creatingAction.trackId, startTime, endTime);
+                    }
+                }
+                setCreatingAction(null);
             }
         };
 
-        if (draggingAction) {
+        if (draggingAction || creatingAction) {
             document.addEventListener('mousemove', handleMouseMove);
             document.addEventListener('mouseup', handleMouseUp);
         }
@@ -102,14 +194,14 @@ const SimpleTimeline = ({
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [draggingAction, tracks, onUpdate, pixelsPerSecond]);
+    }, [draggingAction, creatingAction, tracks, onUpdate, onCreate, scale]);
 
 
     return (
-        <div ref={containerRef} className="timeline-container custom-scrollbar">
+        <div ref={containerRef} className="timeline-container custom-scrollbar" onWheel={() => {}}>
             <div className="timeline-inner-wrapper" style={{ width: totalWidth }}>
 
-                {/* 标尺 */}
+                {/* 1. 标尺 */}
                 <div
                     className="timeline-ruler"
                     style={{ height: HEADER_HEIGHT }}
@@ -118,13 +210,31 @@ const SimpleTimeline = ({
                     {renderRuler()}
                 </div>
 
-                {/* 轨道 */}
+                {/* 2. 波形图 */}
+                <div className="border-b border-gray-700 bg-gray-900/50 relative">
+                    <div className="absolute inset-0 border-b border-gray-800 pointer-events-none" />
+                    <div className="sticky left-0 z-10 w-24 h-full flex items-center px-2 bg-gray-800/80 border-r border-gray-700 text-xs text-gray-400 font-bold backdrop-blur-sm absolute top-0">
+                        AUDIO
+                    </div>
+                    <div style={{ paddingLeft: 0 }}>
+                        <Waveform url={videoUrl} scale={scale} height={WAVEFORM_HEIGHT} />
+                    </div>
+                </div>
+
+                {/* 3. 轨道区域 */}
                 <div className="timeline-track-area">
                     {tracks.map(track => (
-                        <div key={track.id} className="timeline-track" style={{ height: TRACK_HEIGHT }}>
+                        <div
+                            key={track.id}
+                            className="timeline-track"
+                            style={{ height: TRACK_HEIGHT }}
+                            // [新增] 轨道点击事件，开始画框
+                            onMouseDown={(e) => handleTrackMouseDown(e, track.id)}
+                        >
                             <div className="timeline-track-bg" />
-                            <div className="timeline-track-label">{track.name}</div>
+                            <div className="timeline-track-label select-none">{track.name}</div>
 
+                            {/* 渲染已有片段 */}
                             {track.actions.map(action => {
                                 const isDragging = draggingAction?.actionId === action.id;
                                 const isSelected = selectedActionId === action.id;
@@ -134,39 +244,55 @@ const SimpleTimeline = ({
                                         <div
                                             className="timeline-clip"
                                             style={{
-                                                left: action.start * pixelsPerSecond,
-                                                width: (action.end - action.start) * pixelsPerSecond,
+                                                left: action.start * scale,
+                                                width: (action.end - action.start) * scale,
                                                 backgroundColor: track.color || '#6366f1',
                                                 cursor: isDragging ? 'grabbing' : 'grab',
                                                 opacity: isDragging ? 0.8 : 1,
                                                 zIndex: isDragging ? 50 : 1,
-                                                transition: isDragging ? 'none' : 'left 0.1s, width 0.1s', // 拖拽时取消过渡，更跟手
-                                                // [新增] 选中时的高亮样式 (黄色边框 + 阴影)
+                                                transition: isDragging ? 'none' : 'left 0.1s, width 0.1s',
                                                 border: isSelected ? '2px solid #fbbf24' : '1px solid rgba(255, 255, 255, 0.2)',
                                                 boxShadow: isSelected ? '0 0 8px rgba(251, 191, 36, 0.5)' : 'none'
                                             }}
-                                            onMouseDown={(e) => handleClipMouseDown(e, track.id, action)}
-                                            // [新增] 点击选中
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (onSelect) onSelect(action, track);
-                                            }}
+                                            onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'move')}
                                         >
-                                            {action.data.label || action.data.text}
+                                            <div
+                                                className="timeline-clip-handle timeline-clip-handle-left"
+                                                onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'left')}
+                                            />
+                                            <div className="flex-1 overflow-hidden truncate px-2 pointer-events-none">
+                                                {action.data.label || action.data.text}
+                                            </div>
+                                            <div
+                                                className="timeline-clip-handle timeline-clip-handle-right"
+                                                onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'right')}
+                                            />
                                         </div>
                                     </Tooltip>
                                 );
                             })}
+
+                            {/* [新增] 渲染正在创建的“幽灵片段” (Ghost Clip) */}
+                            {creatingAction && creatingAction.trackId === track.id && (
+                                <div
+                                    className="absolute top-1 bottom-1 bg-white/30 border border-white/50 rounded pointer-events-none z-40"
+                                    style={{
+                                        left: Math.min(creatingAction.startAbsoluteX, creatingAction.startAbsoluteX + (creatingAction.currentX - creatingAction.startX)),
+                                        width: Math.abs(creatingAction.currentX - creatingAction.startX)
+                                    }}
+                                />
+                            )}
                         </div>
                     ))}
                 </div>
 
-                {/* 游标 */}
+                {/* 4. 游标 */}
                 <div
                     className="timeline-cursor"
-                    style={{ left: currentTime * pixelsPerSecond }}
+                    style={{ left: currentTime * scale }}
                 >
                     <div className="timeline-cursor-head" />
+                    <div className="w-px h-full bg-red-500/50" />
                 </div>
 
             </div>

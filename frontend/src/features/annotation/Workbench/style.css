@@ -176,8 +176,31 @@
     border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
-.timeline-clip:hover {
-    filter: brightness(1.1);
+/* [新增] 左右拖拽把手 (Handle) */
+.timeline-clip-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 6px; /* 把手宽度，太窄不好点 */
+    cursor: col-resize; /* 鼠标变为 <-> */
+    z-index: 20; /* 确保在文字上方 */
+    background-color: transparent; /* 默认透明 */
+    transition: background-color 0.2s;
+}
+
+/* 鼠标悬停时稍微显示一下，提示用户这里可拖拽 */
+.timeline-clip-handle:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 左把手 */
+.timeline-clip-handle-left {
+    left: 0;
+}
+
+/* 右把手 */
+.timeline-clip-handle-right {
+    right: 0;
 }
 
 .timeline-cursor {
