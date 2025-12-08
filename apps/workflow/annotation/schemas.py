@@ -8,49 +8,73 @@ from pydantic import BaseModel, Field
 
 # ==========================================
 # 1. 受控词表 (Controlled Vocabularies)
-# 基于《视频标记规范》v2.6 及业务需求定义
+# 基于 v2.6 文档及最新业务需求定义
 # ==========================================
 
 
-class SceneMood(str, Enum):
-    """场景氛围 (Layer 2)"""
-
-    CALM = "Calm"
-    TENSE = "Tense"
-    ROMANTIC = "Romantic"
-    JOYFUL = "Joyful"
-    SAD = "Sad"
-    MYSTERIOUS = "Mysterious"
-    # 可根据实际需求扩展
-
-
 class SceneType(str, Enum):
-    """场景内容类型 (Layer 2)"""
+    """场景内容类型"""
 
-    DIALOGUE_HEAVY = "Dialogue_Heavy"  # 文戏
-    ACTION = "Action"  # 武戏/动作
-    TRANSITION = "Transition"  # 过场
-    ESTABLISHING = "Establishing"  # 铺垫/空镜
+    DIALOGUE_HEAVY = "Dialogue_Heavy"  # 对话驱动
+    ACTION_DRIVEN = "Action_Driven"  # 动作驱动
+    INTERNAL_MONOLOGUE = "Internal_Monologue"  # 内心独白
+    VISUAL_STORYTELLING = "Visual_Storytelling"  # 视觉叙事
+
+
+class SceneMood(str, Enum):
+    """场景氛围"""
+
+    ROMANTIC = "Romantic"  # 浪漫
+    WARM = "Warm"  # 温馨
+    JOYFUL = "Joyful"  # 喜悦
+    CALM = "Calm"  # 平静
+    TENSE = "Tense"  # 紧张
+    SUSPENSEFUL = "Suspenseful"  # 悬疑
+    SAD = "Sad"  # 悲伤
+    ANGRY = "Angry"  # 愤怒
+    CONFRONTATIONAL = "Confrontational"  # 冲突
+    FEARFUL = "Fearful"  # 恐惧
+    OPPRESSIVE = "Oppressive"  # 压抑
+    EERIE = "Eerie"  # 诡异
 
 
 class HighlightType(str, Enum):
-    """高光类型 (Layer 3)"""
+    """高光类型"""
 
-    GOLDEN_LINE = "Golden_Line"  # 金句
-    EMOTIONAL_PEAK = "Emotional_Peak"  # 情感高潮
-    PLOT_TWIST = "Plot_Twist"  # 剧情反转
-    VISUAL_SPECTACLE = "Visual_Spectacle"  # 视觉奇观
-    OTHER = "Other"
+    ACTION = "Action"  # 动作片段
+    EMOTIONAL = "Emotional"  # 情感片段
+    DIALOGUE = "Dialogue"  # 对话片段
+    SUSPENSE = "Suspense"  # 悬念片段
+    INFORMATION = "Information"  # 信息片段
+    HUMOR = "Humor"  # 幽默片段
+    OTHER = "Other"  # [核心修复] 补回 "其他" 选项
+
+
+class HighlightMood(str, Enum):
+    """高光情绪 (新增)"""
+
+    EXCITING = "Exciting"  # 燃
+    SATISFYING = "Satisfying"  # 爽
+    HEART_WRENCHING = "Heart-wrenching"  # 虐
+    SWEET = "Sweet"  # 甜
+    HILARIOUS = "Hilarious"  # 爆笑
+    TERRIFYING = "Terrifying"  # 恐怖
+    HEALING = "Healing"  # 治愈
+    TOUCHING = "Touching"  # 感动
+    TENSE = "Tense"  # 紧张
 
 
 class DataOrigin(str, Enum):
-    """数据来源标记 (支撑 v1.2.1 人机回环)"""
+    HUMAN = "human"
+    AI_ASR = "ai_asr"
+    AI_LLM = "ai_llm"
+    AI_CV = "ai_cv"
+    AI_OCR = "ai_ocr"
 
-    HUMAN = "human"  # 人工创建/修改
-    AI_ASR = "ai_asr"  # 语音识别生成 (针对 Dialogue)
-    AI_LLM = "ai_llm"  # 大模型推理生成 (针对 Scene/Dialogue)
-    AI_CV = "ai_cv"  # 视觉算法生成 (针对 Highlight/Scene)
-    AI_OCR = "ai_ocr"  # OCR 识别生成 (针对 Caption)
+
+# ==========================================
+# 2. 基础组件 (Timeline Items)
+# ==========================================
 
 
 # ==========================================
@@ -119,9 +143,18 @@ class HighlightItem(TimelineItemBase):
     评价性数据。用于剪辑二创。
     """
 
-    type: HighlightType = Field(default=HighlightType.OTHER, description="高光类型")
-    description: Optional[str] = Field(None, description="高光简要描述")
-    mood: Optional[SceneMood] = None  # 高光时刻往往也伴随特定氛围
+    class HighlightItem(TimelineItemBase):
+        """
+        [轨道 3: 高光片段] (Layer 3 产物)
+        评价性数据。用于剪辑二创。
+        """
+
+        type: HighlightType = Field(default=HighlightType.OTHER, description="高光类型")
+
+        # [核心修复] 将 SceneMood 改为 HighlightMood
+        mood: Optional[HighlightMood] = None
+
+        description: Optional[str] = Field(None, description="高光简要描述")
 
 
 class SceneItem(TimelineItemBase):

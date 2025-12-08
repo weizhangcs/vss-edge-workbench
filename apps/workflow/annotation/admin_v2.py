@@ -1,6 +1,8 @@
+import json
 import uuid
 
 from django.contrib import admin
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -11,7 +13,9 @@ from unfold.decorators import display
 from apps.workflow.annotation.projects import AnnotationProjectV2
 
 # 引用新定义的 Schema
-from .schemas import DataOrigin, DialogueItem, MediaAnnotation, SceneItem, SceneMood
+from .schemas import HighlightItem  # 新增 HighlightItem
+from .schemas import HighlightMood  # 新增 Enum
+from .schemas import DataOrigin, DialogueItem, HighlightType, MediaAnnotation, SceneItem, SceneMood
 
 
 @admin.register(AnnotationProjectV2)
@@ -39,18 +43,24 @@ class AnnotationProjectAdminV2(ModelAdmin):
 
     # 3. 核心视图：Workbench 集成
     def workbench_test_view(self, request):
-        # --- Mock 数据生成 (Schema 验证) ---
-        # [修改点] 将 source_path 指向您刚才测试成功的真实 URL 路径
-        # 注意：这里使用的是相对路径或绝对 URL 均可，取决于前端如何处理
-        # 假设您的 Nginx 映射了 /media/ -> media_root
+        if request.method == "POST":
+            # ... (保持 POST 逻辑不变) ...
+            try:
+                data = json.loads(request.body)
+                annotation = MediaAnnotation(**data)
+                print("====== [V2 Admin] Data Saved ======")
+                print(f"Highlights: {len(annotation.highlights)}")  # 打印高光数量
+                return JsonResponse({"status": "success", "message": "保存成功"})
+            except Exception as e:
+                return JsonResponse({"status": "error", "message": str(e)}, status=400)
 
-        # 使用您之前验证过的真实视频路径
+            # --- Mock 数据生成 ---
         real_video_path = "http://localhost:9999/media/transcoding_outputs/5124d170-c299-4d58-8447-abdaac2af5aa/158.mp4"
 
         mock_annotation = MediaAnnotation(
             media_id=str(uuid.uuid4()),
             file_name="158.mp4",
-            source_path=real_video_path,  # <--- [关键修复] 这里不再用假路径
+            source_path=real_video_path,
             duration=120.0,
             scenes=[
                 SceneItem(
@@ -58,7 +68,7 @@ class AnnotationProjectAdminV2(ModelAdmin):
                     start=0.0,
                     end=10.0,
                     label="V2测试场景：开端",
-                    mood=SceneMood.MYSTERIOUS,
+                    mood=SceneMood.JOYFUL,
                     origin=DataOrigin.HUMAN,
                 )
             ],
@@ -74,9 +84,30 @@ class AnnotationProjectAdminV2(ModelAdmin):
                     ai_meta={"confidence": 0.99},
                 ),
             ],
+            # [新增] 高光数据 Mock
+            highlights=[
+                HighlightItem(
+                    id=str(uuid.uuid4()),
+                    start=2.0,
+                    end=8.0,
+                    type=HighlightType.INFORMATION,
+                    description="关键信息披露时刻",
+                    mood=HighlightMood.TENSE,
+                    origin=DataOrigin.HUMAN,
+                ),
+                HighlightItem(
+                    id=str(uuid.uuid4()),
+                    start=12.0,
+                    end=15.0,
+                    type=HighlightType.ACTION,
+                    mood=HighlightMood.TENSE,
+                    description="激烈的追逐画面",
+                    origin=DataOrigin.AI_CV,
+                    ai_meta={"confidence": 0.88},
+                ),
+            ],
         )
 
-        # 序列化
         server_data_json = mock_annotation.model_dump_json()
 
         context = {

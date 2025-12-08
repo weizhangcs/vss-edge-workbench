@@ -1,108 +1,94 @@
-import React, { useEffect } from 'react';
-import { Form, Input, InputNumber, Button, Typography, Empty, Select, Divider } from 'antd';
-import { ClockCircleOutlined, UserOutlined, FontSizeOutlined, TagOutlined } from '@ant-design/icons';
+import React from 'react';
+import { Empty } from 'antd';
+import { DeleteOutlined } from '@ant-design/icons';
+// [核心] 引入独立样式文件
+import './inspectors/inspector.css';
 
-const { Title, Text } = Typography;
-const { TextArea } = Input;
+import SceneInspector from './inspectors/SceneInspector';
+import HighlightInspector from './inspectors/HighlightInspector';
+import DialogueInspector from './inspectors/DialogueInspector';
+import CaptionInspector from './inspectors/CaptionInspector';
 
 const Inspector = ({ action, track, onUpdate, onDelete }) => {
-    const [form] = Form.useForm();
-
-    // 当选中的对象变化时，重置表单
-    useEffect(() => {
-        if (action) {
-            form.setFieldsValue({
-                start: action.start,
-                end: action.end,
-                // 兼容不同类型的数据字段
-                text: action.data.text || action.data.label || '',
-                speaker: action.data.speaker || '',
-            });
-        }
-    }, [action, form]);
-
     if (!action || !track) {
         return (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 text-center">
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 text-center select-none bg-white">
                 <Empty description="未选中任何片段" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                <span className="text-xs mt-2">点击时间轴上的色块进行编辑</span>
+                <span className="text-xs mt-2 text-gray-400">点击时间轴上的色块进行编辑</span>
             </div>
         );
     }
 
-    // 处理表单变更 -> 实时更新父组件 State
-    const handleValuesChange = (changedValues, allValues) => {
-        const newData = { ...action.data };
-
-        // 根据轨道类型更新不同字段
-        if (track.id === 'scenes') {
-            newData.label = allValues.text;
-        } else {
-            newData.text = allValues.text;
-            newData.speaker = allValues.speaker;
+    const handleTimeChange = (e, field) => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) {
+            onUpdate({ ...action, [field]: val });
         }
+    };
 
+    const handleDataChange = (field, value) => {
         onUpdate({
             ...action,
-            start: allValues.start,
-            end: allValues.end,
-            data: newData
+            data: { ...action.data, [field]: value }
         });
     };
 
+    const renderSpecificInspector = () => {
+        const props = { data: action.data, onChange: handleDataChange };
+        switch (track.id) {
+            case 'scenes': return <SceneInspector {...props} />;
+            case 'highlights': return <HighlightInspector {...props} />;
+            case 'captions': return <CaptionInspector {...props} />;
+            case 'dialogues': return <DialogueInspector {...props} />;
+            default: return null;
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full">
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
-                <Title level={5} style={{ margin: 0 }}>
-                    {track.name === 'SCENES' ? '场景属性' : '字幕属性'}
-                </Title>
-                <Text type="secondary" className="text-xs">ID: {action.id}</Text>
+        <div className="inspector-form bg-white border-l border-gray-200">
+            {/* 顶部 */}
+            <div className="inspector-header">
+                <div className="inspector-title">
+                    <span>{track.name} 详情</span>
+                    <span className="inspector-id-tag">{action.id.split('-').pop()}</span>
+                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                <Form
-                    form={form}
-                    layout="vertical"
-                    onValuesChange={handleValuesChange}
-                    size="small"
-                >
-                    {/* 1. 时间控制 */}
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                        <Form.Item label="开始时间 (s)" name="start">
-                            <InputNumber step={0.1} className="w-full" prefix={<ClockCircleOutlined className="text-gray-400"/>} />
-                        </Form.Item>
-                        <Form.Item label="结束时间 (s)" name="end">
-                            <InputNumber step={0.1} className="w-full" prefix={<ClockCircleOutlined className="text-gray-400"/>} />
-                        </Form.Item>
+            {/* 内容区 */}
+            <div className="inspector-body custom-scrollbar">
+                {/* 1. 通用时间控制 */}
+                <div className="form-row">
+                    <div className="form-group">
+                        <label className="form-label">开始 (s)</label>
+                        <input
+                            type="number"
+                            className="form-input"
+                            step="0.1"
+                            value={Number(action.start).toFixed(2)}
+                            onChange={(e) => handleTimeChange(e, 'start')}
+                        />
                     </div>
+                    <div className="form-group">
+                        <label className="form-label">结束 (s)</label>
+                        <input
+                            type="number"
+                            className="form-input"
+                            step="0.1"
+                            value={Number(action.end).toFixed(2)}
+                            onChange={(e) => handleTimeChange(e, 'end')}
+                        />
+                    </div>
+                </div>
 
-                    <Divider />
-
-                    {/* 2. 字幕/角色特有字段 */}
-                    {track.id !== 'scenes' && (
-                        <Form.Item label="角色 (Speaker)" name="speaker">
-                            <Input prefix={<UserOutlined />} placeholder="输入角色名..." />
-                        </Form.Item>
-                    )}
-
-                    {/* 3. 核心内容 (文本或标签) */}
-                    <Form.Item
-                        label={track.id === 'scenes' ? "场景标签" : "字幕内容"}
-                        name="text"
-                    >
-                        {track.id === 'scenes' ? (
-                            <Input prefix={<TagOutlined />} />
-                        ) : (
-                            <TextArea rows={4} showCount maxLength={200} placeholder="输入字幕内容..." />
-                        )}
-                    </Form.Item>
-                </Form>
+                {/* 2. 专用表单 */}
+                {renderSpecificInspector()}
             </div>
 
-            <div className="p-4 border-t border-gray-200 bg-gray-50">
-                <Button danger block onClick={() => onDelete(action.id)}>
-                    删除此片段
-                </Button>
+            {/* 底部 */}
+            <div className="inspector-footer">
+                <button className="btn-delete" onClick={() => onDelete(action.id)}>
+                    <DeleteOutlined style={{ marginRight: 8 }} /> 删除此片段
+                </button>
             </div>
         </div>
     );
