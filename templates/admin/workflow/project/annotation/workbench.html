@@ -5,16 +5,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unified Annotation Workbench</title>
-    {# 引入 Antd 和 Tailwind 样式 (如果 factory.css 还在的话，或者直接依赖 Vite 的 CSS) #}
-    {# 这里主要依赖 Vite 构建产物 #}
+
+    {# 引用 Vite 构建的样式 #}
     <link rel="stylesheet" href="{% static 'css/bundles/annotation-workbench.css' %}">
 
-    {# 简单的 Reset #}
     <style>
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
     </style>
 </head>
 <body>
+    {# [核心修复] 必须把后端传来的 server_data_json 渲染到页面上 #}
+    {# [核心修复] 必须添加这一行！Django 会在此处生成一个隐藏的 <input name="csrfmiddlewaretoken" ...> #}
+    {% csrf_token %}
+
+    {# 方式 A: 直接赋值给 window (简单直观) #}
+    <script>
+        window.SERVER_DATA = {{ server_data_json|safe }};
+    </script>
+
+    {# 方式 B (更推荐): 使用 json_script 安全注入，对应 index.jsx 里的读取逻辑 #}
+    {# {{ server_data_json|json_script:"server-data" }} #}
+
     <div id="react-root"></div>
 
     {# 引用 JS #}

@@ -6,6 +6,7 @@ import VideoPlayer from './components/VideoPlayer';
 import SimpleTimeline from './components/SimpleTimeline';
 import Inspector from './components/Inspector';
 import { parseSRT } from './utils/parsers';
+import { transformToTracks, transformFromTracks } from './utils/adapter';
 import './style.css';
 
 const { Title } = Typography;
@@ -14,6 +15,7 @@ const TEST_VIDEO_URL = "http://localhost:9999/media/transcoding_outputs/5124d170
 const TEST_SRT_URL = "http://localhost:9999/media/transcoding_outputs/5124d170-c299-4d58-8447-abdaac2af5aa/158.srt";
 
 const AnnotationWorkbench = () => {
+    // --- 状态定义 ---
     const [playing, setPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -22,42 +24,53 @@ const AnnotationWorkbench = () => {
     const [selectedActionId, setSelectedActionId] = useState(null);
     const [scale, setScale] = useState(20);
 
+    // [修复] 补全状态定义
+    const [originalMeta, setOriginalMeta] = useState(null);
+    const [saving, setSaving] = useState(false);
+
     const videoRef = useRef(null);
 
-    // 初始化加载
+    // --- 初始化加载 ---
     useEffect(() => {
-        const loadData = async () => {
-            try {
-                setLoading(true);
-                let subtitleActions = [];
+        const initData = async () => {
+            setLoading(true);
+
+            // 获取注入的数据
+            const serverData = window.SERVER_DATA || null;
+            console.log("[Workbench] Init Data:", serverData);
+
+            if (serverData) {
+                // 1. 保存元数据 (用于 Save 时回填)
+                setOriginalMeta(serverData);
+
+                // 2. 转换数据
                 try {
-                    const resp = await fetch(TEST_SRT_URL);
-                    if (resp.ok) {
-                        const text = await resp.text();
-                        subtitleActions = parseSRT(text);
-                        message.success(`成功加载 ${subtitleActions.length} 条字幕`);
-                    } else {
-                        console.warn("SRT file not found.");
+                    const convertedTracks = transformToTracks(serverData);
+                    setTracks(convertedTracks);
+
+                    if (serverData.duration) {
+                        setDuration(serverData.duration);
                     }
                 } catch (e) {
-                    console.error(e);
+                    console.error("[Workbench] Adapter Error:", e);
+                    message.error("数据转换失败");
                 }
-
-                const newTracks = [
+            } else {
+                // Fallback: 如果没有后端数据，加载空轨道
+                message.warning("未检测到后端数据，使用空模板");
+                setTracks([
                     { id: 'scenes', name: 'SCENES', color: '#d8b4fe', actions: [] },
-                    { id: 'subs', name: 'DIALOG', color: '#bae7ff', actions: subtitleActions }
-                ];
-                setTracks(newTracks);
-            } catch (error) {
-                message.error("数据加载失败");
-            } finally {
-                setLoading(false);
+                    { id: 'dialogues', name: 'DIALOG', color: '#bae7ff', actions: [] }
+                ]);
             }
+
+            setLoading(false);
         };
-        loadData();
+
+        initData();
     }, []);
 
-    // 计算当前选中的上下文 (action & track)
+    // --- 辅助计算 ---
     const selectedContext = useMemo(() => {
         if (!selectedActionId) return { action: null, track: null };
         for (const track of tracks) {
@@ -67,9 +80,9 @@ const AnnotationWorkbench = () => {
         return { action: null, track: null };
     }, [selectedActionId, tracks]);
 
-    // [新增] 判断当前选中的是否为场景 (用于禁用按钮)
     const isSceneSelected = selectedContext.track?.id === 'scenes';
 
+    // --- 基础交互 ---
     const handleProgress = (state) => setCurrentTime(state.playedSeconds);
 
     const handleSeek = (time) => {
@@ -120,7 +133,7 @@ const AnnotationWorkbench = () => {
         }
     };
 
-    // --- 业务逻辑修改: 拆分 (Cut) ---
+    // --- [完整] 拆分逻辑 (Split) ---
     const handleSplitClip = () => {
         if (!selectedActionId) return;
 
@@ -159,7 +172,7 @@ const AnnotationWorkbench = () => {
         const track = newTracks[trackIndex];
         const action = track.actions[actionIndex];
 
-        // [规则] Cut时赋值：字幕内容直接复制 (cloneDeep 已包含 data.text 和 data.speaker)
+        // [规则] Cut时赋值：字幕内容直接复制
         const originalEnd = action.end;
         action.end = currentTime;
 
@@ -177,7 +190,7 @@ const AnnotationWorkbench = () => {
         message.success('拆分成功 (请手动校验文本内容)');
     };
 
-    // --- 业务逻辑修改: 合并 (Join) ---
+    // --- [完整] 合并逻辑 (Merge) ---
     const handleMergeClip = () => {
         if (!selectedActionId) return;
 
@@ -237,34 +250,60 @@ const AnnotationWorkbench = () => {
 
     const togglePlay = () => setPlaying(!playing);
 
+    // --- 保存逻辑 (Save) ---
+    const handleSave = async () => {
+        if (!originalMeta) {
+            message.error("原始数据丢失，无法保存");
+            return;
+        }
+
+        setSaving(true);
+        try {
+            // 1. 数据组装：Tracks -> Backend Schema
+            const payload = transformFromTracks(tracks, originalMeta);
+            console.log("[Workbench] Saving Payload:", payload);
+
+            // 2. 发送请求
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const resData = await response.json();
+
+            if (response.ok && resData.status === 'success') {
+                message.success('保存成功');
+            } else {
+                message.error(`保存失败: ${resData.message || '未知错误'}`);
+            }
+
+        } catch (e) {
+            console.error(e);
+            message.error("网络请求失败");
+        } finally {
+            setSaving(false);
+        }
+    };
+
     // --- 键盘快捷键 ---
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
 
             switch(e.code) {
-                case 'Space':
-                    e.preventDefault();
-                    setPlaying(prev => !prev);
-                    break;
-                case 'Backspace':
-                case 'Delete':
-                    if (selectedActionId) {
-                        e.preventDefault();
-                        handleActionDelete(selectedActionId);
-                    }
-                    break;
-                case 'KeyS':
-                    e.preventDefault();
-                    handleSplitClip();
-                    break;
-                case 'KeyM':
-                    e.preventDefault();
-                    handleMergeClip();
-                    break;
+                case 'Space': e.preventDefault(); setPlaying(prev => !prev); break;
+                case 'Backspace': case 'Delete': if (selectedActionId) { e.preventDefault(); handleActionDelete(selectedActionId); } break;
+                case 'KeyS': e.preventDefault(); handleSplitClip(); break;
+                case 'KeyM': e.preventDefault(); handleMergeClip(); break;
             }
         };
-
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedActionId, currentTime, tracks]);
@@ -276,8 +315,8 @@ const AnnotationWorkbench = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <Button icon={<ArrowLeftOutlined />} type="text" onClick={() => window.history.back()} />
                     <div>
-                        <Title level={4} style={{ margin: 0 }}>Big Buck Bunny (Production)</Title>
-                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>v2.2 (Rules Enforced)</span>
+                        <Title level={4} style={{ margin: 0 }}>Annotation Workbench</Title>
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>v3.1 (Full Features)</span>
                     </div>
                 </div>
 
@@ -294,7 +333,15 @@ const AnnotationWorkbench = () => {
                 </div>
 
                 <Space>
-                    <Button type="primary" icon={<SaveOutlined />}>保存进度</Button>
+                    {/* 保存按钮 */}
+                    <Button
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={handleSave}
+                        loading={saving}
+                    >
+                        保存
+                    </Button>
                 </Space>
             </header>
 
@@ -306,7 +353,7 @@ const AnnotationWorkbench = () => {
                     <div className="wb-video-area">
                         <VideoPlayer
                             ref={videoRef}
-                            url={TEST_VIDEO_URL}
+                            url={originalMeta?.source_path ? originalMeta.source_path : TEST_VIDEO_URL} // 尝试使用后端返回的路径
                             playing={playing}
                             onProgress={handleProgress}
                             onDuration={setDuration}
@@ -324,33 +371,15 @@ const AnnotationWorkbench = () => {
                     </div>
                 </div>
 
-                {/* Bottom Pane: Timeline */}
+                {/* Bottom Pane */}
                 <div className="wb-timeline-pane">
                     <div className="wb-timeline-toolbar">
                         <div style={{ display: 'flex', gap: '8px', marginRight: '24px' }}>
-
-                            {/* 拆分按钮: 选中场景时禁用 */}
-                            <AntTooltip title={isSceneSelected ? "场景不支持拆分" : "快捷键: S (复制属性)"}>
-                                <Button
-                                    size="small"
-                                    icon={<ScissorOutlined />}
-                                    onClick={handleSplitClip}
-                                    disabled={!selectedActionId || isSceneSelected}
-                                >
-                                    拆分
-                                </Button>
+                            <AntTooltip title={isSceneSelected ? "场景不支持拆分" : "快捷键: S"}>
+                                <Button size="small" icon={<ScissorOutlined />} onClick={handleSplitClip} disabled={!selectedActionId || isSceneSelected}>拆分</Button>
                             </AntTooltip>
-
-                            {/* 合并按钮: 选中场景时禁用 */}
-                            <AntTooltip title={isSceneSelected ? "场景不支持合并" : "快捷键: M (需角色一致)"}>
-                                <Button
-                                    size="small"
-                                    icon={<MergeCellsOutlined />}
-                                    onClick={handleMergeClip}
-                                    disabled={!selectedActionId || isSceneSelected}
-                                >
-                                    合并
-                                </Button>
+                            <AntTooltip title={isSceneSelected ? "场景不支持合并" : "快捷键: M"}>
+                                <Button size="small" icon={<MergeCellsOutlined />} onClick={handleMergeClip} disabled={!selectedActionId || isSceneSelected}>合并</Button>
                             </AntTooltip>
                         </div>
 
@@ -359,14 +388,7 @@ const AnnotationWorkbench = () => {
                     </span>
 
                         <div style={{ width: 200, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Slider
-                                min={1}
-                                max={100}
-                                value={scale}
-                                onChange={setScale}
-                                style={{ flex: 1 }}
-                                tooltip={{ formatter: (v) => `${v} px/s` }}
-                            />
+                            <Slider min={1} max={100} value={scale} onChange={setScale} style={{ flex: 1 }} tooltip={{ formatter: (v) => `${v} px/s` }} />
                         </div>
                     </div>
 
@@ -378,16 +400,17 @@ const AnnotationWorkbench = () => {
                             onSeek={handleSeek}
                             onUpdate={handleTrackUpdate}
                             selectedActionId={selectedActionId}
-                            onSelect={(action) => setSelectedActionId(action.id)}
+                            onSelect={(action) => setSelectedActionId(action ? action.id : null)} // 增加空值检查：如果是 null，则设为 null，否则取 id
                             scale={scale}
                             onScaleChange={setScale}
-                            videoUrl={TEST_VIDEO_URL}
+                            videoUrl={originalMeta?.source_path ? originalMeta.source_path : TEST_VIDEO_URL}
                             onCreate={handleCreateClip}
                         />
                     </div>
                 </div>
-
             </div>
+
+            <div style={{ display: 'none' }}></div>
         </div>
     );
 };

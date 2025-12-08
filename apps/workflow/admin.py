@@ -11,6 +11,7 @@
 # 文件路径: apps/workflow/admin.py
 
 from .annotation.admin import AnnotationJobAdmin, AnnotationProjectAdmin
+from .annotation.admin_v2 import AnnotationProjectAdminV2, AnnotationProjectV2
 from .creative.admin import CreativeProjectAdmin
 from .delivery.admin import DeliveryJobAdmin
 from .inference.admin import InferenceProjectAdmin
@@ -26,4 +27,6 @@ __all__ = [
     "InferenceProjectAdmin",
     "TranscodingJobAdmin",
     "TranscodingProjectAdmin",
+    "AnnotationProjectV2",
+    "AnnotationProjectAdminV2",
 ]

@@ -1,4 +1,4 @@
-# 文件路径: apps/configuration/apps.py
+# 文件路径: apps/workflow/apps.py
 
 from django.apps import AppConfig
 

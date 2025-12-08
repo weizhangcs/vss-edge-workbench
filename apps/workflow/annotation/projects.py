@@ -121,3 +121,22 @@ class AnnotationProject(BaseProject):
     class Meta:
         verbose_name = "标注项目"
         verbose_name_plural = "标注项目"
+
+
+# apps/workflow/models.py
+
+# ... (原有的 AnnotationProject 定义)
+
+
+class AnnotationProjectV2(AnnotationProject):
+    """
+    [重构过渡] AnnotationProject 的代理模型。
+    用于绑定 admin_v2.py，实现新老 Admin 的物理隔离并行开发。
+    不生成新数据库表，数据与原模型完全共享。
+    """
+
+    class Meta:
+        proxy = True
+        verbose_name = "标注项目 (V2 重构版)"
+        verbose_name_plural = "标注项目 (V2 重构版)"
+        app_label = "workflow"  # 确保在正确的 app 下
