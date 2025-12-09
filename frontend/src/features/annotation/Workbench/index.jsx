@@ -429,6 +429,8 @@ const AnnotationWorkbench = () => {
                             onScaleChange={setScale}
                             videoUrl={finalVideoUrl}
                             onCreate={handleCreateClip}
+                            // [新增] 传递波形 URL
+                            waveformUrl={originalMeta?.waveform_url}
                         />
                     </div>
                 </div>

@@ -190,6 +190,8 @@ class MediaAnnotation(BaseModel):
     media_id: str = Field(..., description="关联的 Media UUID")
     file_name: str = Field(..., description="物理文件名 (如 ep01.mp4)")
     source_path: str = Field(..., description="物理文件相对路径")
+    # [新增] 波形数据地址
+    waveform_url: Optional[str] = Field(None, description="预生成的波形数据(JSON)下载地址")
 
     # 核心数据 (四条轨道)
     scenes: List[SceneItem] = []  # 场景轨
@@ -200,7 +202,40 @@ class MediaAnnotation(BaseModel):
     # 元数据
     duration: float = 0.0
     updated_at: datetime = Field(default_factory=datetime.now)
-    version: str = "1.1"
+    version: str = "1.2"
+
+    def get_clean_business_data(self) -> Dict:
+        """
+        [v1.2.1 架构支撑]
+        生成“净业务数据”版本 (Business Clean Version)。
+        剔除工程字段 (is_verified, origin, ai_meta, id)，
+        仅保留用于 Inference 和 RAG 的核心业务价值数据。
+        """
+        data = self.model_dump()
+
+        # 定义需要剔除的工程字段
+        engineering_fields = {"is_verified", "origin", "ai_meta", "original_text"}
+
+        def clean_list(items):
+            cleaned = []
+            for item in items:
+                # 剔除工程字段
+                clean_item = {k: v for k, v in item.items() if k not in engineering_fields}
+
+                # [可选] 业务规则：如果包含置信度，且置信度过低，是否要过滤？
+                # 目前策略：只过滤字段，不过滤数据行，由下游决定是否使用低置信度数据
+
+                cleaned.append(clean_item)
+            return cleaned
+
+        return {
+            "media_id": data["media_id"],
+            "duration": data["duration"],
+            "scenes": clean_list(data["scenes"]),
+            "dialogues": clean_list(data["dialogues"]),
+            "captions": clean_list(data["captions"]),
+            "highlights": clean_list(data["highlights"]),
+        }
 
 
 class ProjectBlueprint(BaseModel):

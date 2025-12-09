@@ -50,7 +50,7 @@ export const parseSRT = (srtContent) => {
             data: {
                 text: content,
                 speaker: speaker,
-                originalText: text // 保留原始文本备用
+                original_text: text // 保留原始文本备用
             }
         });
     });

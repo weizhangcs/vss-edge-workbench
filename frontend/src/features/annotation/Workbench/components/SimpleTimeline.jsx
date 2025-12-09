@@ -28,7 +28,8 @@ const SimpleTimeline = ({
                             selectedActionId,
                             onSelect,
                             onCreate, // [新增] 创建回调
-                            videoUrl
+                            videoUrl,
+                            waveformUrl // [新增] 接收 prop
                         }) => {
     const containerRef = useRef(null);
     const totalWidth = Math.max(duration * scale, 1000);
@@ -217,7 +218,7 @@ const SimpleTimeline = ({
                         AUDIO
                     </div>
                     <div style={{ paddingLeft: 0 }}>
-                        <Waveform url={videoUrl} scale={scale} height={WAVEFORM_HEIGHT} />
+                        <Waveform url={videoUrl} waveformUrl={waveformUrl} scale={scale} height={WAVEFORM_HEIGHT} />
                     </div>
                 </div>
 

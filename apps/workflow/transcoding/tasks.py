@@ -10,9 +10,11 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 
+from apps.media_assets.models import Media
 from apps.workflow.models import DeliveryJob, TranscodingJob, TranscodingProject
 
 from ..delivery.tasks import run_delivery_job
+from .utils import generate_peaks_from_video
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,44 @@ def _check_and_update_project_status(project: TranscodingProject):
         project.status = new_status
         project.save(update_fields=["status"])
         logger.info(f"Project {project.id} status updated to {new_status}")
+
+
+@shared_task(name="apps.workflow.transcoding.tasks.generate_waveform")
+def generate_waveform_task(media_id):
+    """
+    独立任务：为指定 Media 生成波形数据
+    """
+    logger.info(f"Starting waveform generation for Media {media_id}")
+    try:
+        media = Media.objects.get(id=media_id)
+        if not media.source_video:
+            logger.warning(f"Media {media_id} has no source video, skipping waveform.")
+            return
+
+        # 准备临时路径
+        temp_dir = Path(settings.MEDIA_ROOT) / "temp_waveforms"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        json_filename = f"waveform_{media.id}.json"
+        temp_json_path = temp_dir / json_filename
+
+        # 执行生成
+        success = generate_peaks_from_video(media.source_video.path, temp_json_path)
+
+        if success and temp_json_path.exists():
+            # 保存到 Media 模型
+            with open(temp_json_path, "rb") as f:
+                media.waveform_data.save(json_filename, ContentFile(f.read()), save=True)
+
+            logger.info(f"Waveform generated and saved for Media {media_id}")
+
+            # 清理
+            os.remove(temp_json_path)
+        else:
+            logger.error(f"Failed to generate waveform for Media {media_id}")
+
+    except Exception as e:
+        logger.error(f"Error in generate_waveform_task: {e}", exc_info=True)
 
 
 @shared_task(name="apps.workflow.transcoding.tasks.run_transcoding_job")
@@ -116,6 +156,13 @@ def run_transcoding_job(job_id):
             delivery_job = DeliveryJob.objects.create(source_object=job)
 
             transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
+
+            # [新增] 触发波形生成任务
+            # 我们使用 on_commit 确保 DB 事务完成后再发消息
+            # 注意：波形是针对 Media 的，只需生成一次。
+            # 如果该 Media 还没有波形数据，则触发生成。
+            if not job.media.waveform_data:
+                transaction.on_commit(lambda: generate_waveform_task.delay(job.media.id))
 
         logger.info(f"Job {job_id} finished transcoding, triggering delivery {delivery_job.id}")
 

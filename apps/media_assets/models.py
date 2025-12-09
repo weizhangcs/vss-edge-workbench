@@ -47,6 +47,11 @@ class Asset(TimeStampedModel):
         ordering = ["-created"]
 
 
+def get_waveform_upload_path(instance, filename):
+    # 存放在 source_files 下的 waveforms 目录
+    return f"source_files/{instance.asset.id}/waveforms/{filename}"
+
+
 # --- Media 模型 (V5.0 重构版) ---
 class Media(TimeStampedModel):
     """
@@ -66,8 +71,10 @@ class Media(TimeStampedModel):
         upload_to=get_subtitle_upload_path, blank=True, null=True, verbose_name="源字幕文件 (SRT)"
     )
 
-    # [已删除] processed_video_url 及相关 property
-    # [已删除] source_subtitle_url 及相关 property
+    # [新增] 存储波形数据 (JSON)
+    waveform_data = models.FileField(
+        upload_to=get_waveform_upload_path, blank=True, null=True, verbose_name="波形数据 (Peaks)"
+    )
 
     def __str__(self):
         return f"{self.asset.title} - {self.sequence_number:02d} - {self.title}"  # noqa: E231
@@ -87,7 +94,7 @@ class Media(TimeStampedModel):
         if encoding_profile:
             try:
                 # [延迟导入] 避免 Circular Import (Media <-> TranscodingJob)
-                from apps.workflow.transcoding.projects import TranscodingJob
+                from apps.workflow.transcoding.jobs import TranscodingJob
 
                 job = (
                     TranscodingJob.objects.filter(
