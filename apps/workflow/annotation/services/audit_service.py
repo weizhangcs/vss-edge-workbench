@@ -1,200 +1,279 @@
-# 文件路径: apps/workflow/annotation/services/audit_service.py
-
-import csv
-import io
 import logging
 from collections import defaultdict
-from datetime import datetime
+from typing import Any, Dict, List
 
-from django.core.files.base import ContentFile
+# 引用 AnnotationService 用于加载 Job 数据
+from .annotation_service import AnnotationService
 
-from ...common.baseJob import BaseJob
-from ...models import AnnotationJob, AnnotationProject
-
-# 初始化 logger
 logger = logging.getLogger(__name__)
 
 
-class L1AuditService:
+class ArtifactAuditService:
     """
-    (已重构)
-    L1 审计服务
-    一次性生成“摘要报告”(Code 1) 和“详情日志”(Code 1 - find_occurrences)。
+    针对 V5.1 Schema 的产出物审计服务。
+
+    [核心升级 - 2025-12-09]
+    逻辑已完全对齐原 metrics_service.py：
+    1. 引入“数据适配器”，将平铺的 V5.1 轨道数据重组为 Scene-Dialogue 嵌套结构。
+    2. 复用“共现矩阵 (Co-occurrence)”计算逻辑。
+    3. 复用“多维归一化 + 权重 (Presence 0.7 / Interaction 0.3)” 评分算法。
     """
 
-    def __init__(self, project_id: str):
-        try:
-            self.project = AnnotationProject.objects.get(id=project_id)
-            self.project_id = project_id
-            logger.info(f"L1AuditService initialized for project: {self.project.name}")
-        except AnnotationProject.DoesNotExist:
-            logger.error(f"L1AuditService: Project {project_id} not found.")
-            raise
+    @classmethod
+    def audit_project(cls, project) -> Dict[str, Any]:
+        """
+        主入口：对 AnnotationProject 实例进行全量审计
+        """
+        audit_report = {
+            "project_info": {
+                "id": str(project.id),
+                "name": project.name,
+                "total_jobs": 0,
+                "valid_jobs": 0,
+            },
+            "technical_audit": {"status": "pass", "errors": []},
+            "engineering_stats": {
+                "total_duration": 0.0,
+                "track_counts": defaultdict(int),
+                "ai_vs_human": {"ai_modified": 0, "human_modified": 0},
+            },
+            "semantic_audit": {},
+        }
 
-    def _parse_duration(self, start_str: str, end_str: str) -> float:
-        """
-        健壮的 .ass 时间戳解析器。
-        """
-        try:
-            start = datetime.strptime(start_str.strip(), "%H:%M:%S.%f")
-            end = datetime.strptime(end_str.strip(), "%H:%M:%S.%f")
-            return (end - start).total_seconds()
-        except ValueError:
+        valid_jobs = project._get_valid_jobs()
+        audit_report["project_info"]["total_jobs"] = project.jobs.count()
+        audit_report["project_info"]["valid_jobs"] = valid_jobs.count()
+
+        # --- 临时数据池：用于后续的“适配器”重组 ---
+        all_scenes_pool = []
+        all_dialogues_pool = []
+
+        # 遍历 Jobs 进行聚合
+        for job in valid_jobs:
             try:
-                start = datetime.strptime(start_str.strip(), "%H:%M:%S")
-                end = datetime.strptime(end_str.strip(), "%H:%M:%S")
-                return (end - start).total_seconds()
-            except Exception:
-                return 0.0
+                # [1. 技术审计] 加载 Schema
+                media_anno = AnnotationService.load_annotation(job)
+                business_data = media_anno.get_clean_business_data()
 
-    def _generate_summary_csv(self, stats: defaultdict, total_dialogues: int) -> str:
-        """
-        (来自 Code 1 - list_character_names)
-        生成“摘要” CSV 字符串。
-        """
-        report_rows = []
-        for name, data in stats.items():
-            count = data.get("count", 0)
-            percentage = f"{(count / total_dialogues) * 100:.2f}%" if total_dialogues > 0 else "0.00%"  # noqa: E231
-            report_rows.append(
-                {
-                    "character_name": name,
-                    "dialogue_count": count,
-                    "percentage": percentage,
-                    "total_duration_seconds": round(data.get("duration", 0.0), 2),
-                    "total_length_chars": data.get("length", 0),
-                }
-            )
-        report_rows.sort(key=lambda x: x["dialogue_count"], reverse=True)
-        header = ["character_name", "dialogue_count", "percentage", "total_duration_seconds", "total_length_chars"]
+                # [2. 工程统计]
+                current_duration = media_anno.duration
 
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=header)
-        writer.writeheader()
-        writer.writerows(report_rows)  # (已修复: 移除了 'rows=')
-        return output.getvalue()
+                audit_report["engineering_stats"]["total_duration"] += current_duration
 
-    def _generate_occurrence_csv(self, occurrences: list) -> str:
-        """
-        (来自 Code 1 - find_character_occurrences)
-        生成“详情” CSV 字符串。
-        """
-        header = ["file_name", "line_number", "found_in", "line_content"]
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=header)
-        writer.writeheader()
-        writer.writerows(occurrences)  # (已修复: 移除了 'rows=')
-        return output.getvalue()
+                # [3. 数据分流] 收集轨道数据
+                for track_name, items in business_data.items():
+                    if isinstance(items, list):
+                        audit_report["engineering_stats"]["track_counts"][track_name] += len(items)
 
-    def generate_audit_report(self):
-        """
-        (主方法 - 已重构)
-        在一次循环中同时执行“摘要”和“详情”分析。
-        """
-        logger.info(f"开始为项目 {self.project.name} (ID: {self.project_id}) 生成 L1 角色审计...")
+                        # 场景：需要保证全局唯一 ID，因为不同 Job 的场景 ID 可能重复
+                        if track_name == "scenes":
+                            for s in items:
+                                # 注入唯一 ID，格式: job_id + scene_id
+                                s["_unique_id"] = f"{job.id}_{s.get('id')}"
+                                all_scenes_pool.append(s)
 
-        l1_jobs = AnnotationJob.objects.filter(
-            project=self.project,
-            job_type=AnnotationJob.TYPE.L1_SUBEDITING,
-            status__in=[BaseJob.STATUS.COMPLETED, BaseJob.STATUS.REVISING],  # (已修复: 包含 REVISING)
-            l1_output_file__isnull=False,
-        ).exclude(l1_output_file="")
-
-        if not l1_jobs:
-            logger.warning(f"项目 {self.project.name} 中没有找到已完成或修订中的 L1 .ass 文件。")
-            return
-
-        # --- 初始化两个报告的数据容器 ---
-        # 1. 摘要报告 (来自 Code 1 - list_names)
-        stats = defaultdict(lambda: {"count": 0, "length": 0, "duration": 0.0})
-        total_dialogues = 0
-        functional_names = {"SCENE", "HIGHLIGHT", "CAPTION", "场景", "高光", "提词"}
-
-        # 2. 详情报告 (来自 Code 1 - find_occurrences)
-        occurrences = []
-
-        # --- 一次遍历，同时处理两个报告 ---
-        for job in l1_jobs:
-            try:
-                if not job.l1_output_file:
-                    continue
-
-                job.l1_output_file.open("rb")
-                content_bytes = job.l1_output_file.read()
-                content = content_bytes.decode("utf-8-sig")
-                job.l1_output_file.close()
-
-                in_events = False
-
-                # (来自 Code 1 - find_occurrences) enumerate() 从 1 开始计数
-                for i, line_content in enumerate(content.splitlines(), 1):
-                    line_strip = line_content.strip()
-
-                    if line_strip.lower() == "[events]":
-                        in_events = True
-                        continue
-                    if not in_events or not line_strip.lower().startswith("dialogue:"):
-                        continue
-
-                    try:
-                        parts = line_strip.split(",", 9)
-                        if len(parts) < 10:
-                            continue
-
-                        start_str, end_str, actor_raw, text = parts[1], parts[2], parts[4], parts[9]
-                        actor = actor_raw.split(",")[0].strip()
-
-                        if not actor or actor.upper() in functional_names:
-                            continue  # 忽略功能性角色
-
-                        # --- 1. 填充“摘要”数据 ---
-                        stats[actor]["count"] += 1
-                        stats[actor]["length"] += len(text)
-                        stats[actor]["duration"] += self._parse_duration(start_str, end_str)
-                        total_dialogues += 1
-
-                        # --- 2. 填充“详情”数据 (来自 Code 1 - find_occurrences) ---
-                        # 我们将记录所有*非功能性*角色的出现
-                        # "search_in: 'actor'" 逻辑
-                        occurrences.append(
-                            {
-                                "file_name": job.l1_output_file.name.split("/")[-1],
-                                "line_number": i,
-                                "found_in": actor,  # (优化: 直接使用 actor 名字)
-                                "line_content": text,  # (优化: 只保存文本)
-                            }
-                        )
-
-                    except IndexError:
-                        continue
+                        # 对白：收集起来后续匹配
+                        elif track_name in ["dialogues", "captions"]:
+                            all_dialogues_pool.extend(items)
 
             except Exception as e:
-                logger.error(f"处理文件 {job.l1_output_file.name} 时出错: {e}", exc_info=True)
-                continue
+                error_msg = f"Job {job.id} 加载失败: {str(e)}"
+                audit_report["technical_audit"]["errors"].append(error_msg)
+                logger.error(error_msg)
 
-        if not stats:
-            logger.warning(f"项目 {self.project.name} 的 .ass 文件中未发现任何有效角色。")
-            return
+        if audit_report["technical_audit"]["errors"]:
+            audit_report["technical_audit"]["status"] = "failed"
 
-        # --- 生成并保存两个 CSV ---
+        # --- [4. 语义审计核心] ---
+        # 步骤 A: 数据适配 (Adapter) - 将对白按时间戳塞回场景
+        mapped_scenes = cls._map_dialogues_to_scenes(all_scenes_pool, all_dialogues_pool)
 
-        # 1. 保存“摘要”报告
-        summary_csv = self._generate_summary_csv(stats, total_dialogues)
-        summary_filename = f"character_SUMMARY_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        self.project.character_audit_report.save(
-            summary_filename, ContentFile(summary_csv.encode("utf-8-sig")), save=False  # (我们稍后一起保存)
+        # 步骤 B: 算法执行 - 调用移植过来的 metrics_service 逻辑
+        char_analysis = cls._calculate_advanced_metrics(mapped_scenes)
+        audit_report["semantic_audit"] = char_analysis
+
+        return audit_report
+
+    @staticmethod
+    def _map_dialogues_to_scenes(scenes: List[Dict], dialogues: List[Dict]) -> Dict[str, Dict]:
+        """
+        [数据适配器]
+        将平铺的 dialogues 列表，根据 start_time 归位到对应的 scenes 中。
+        这是计算“共现 (Co-occurrence)”的前提。
+        """
+        # 结果格式: { unique_scene_id: { ..., "dialogues": [] } }
+        scene_map = {}
+
+        # 按时间排序优化匹配效率
+        sorted_scenes = sorted(scenes, key=lambda x: x.get("start", 0))
+
+        # 初始化 map
+        for s in sorted_scenes:
+            s_copy = s.copy()
+            s_copy["dialogues"] = []
+            scene_map[s["_unique_id"]] = s_copy
+
+        # 分发对白
+        # 逻辑：对白的开始时间只要落在场景区间内，就算该场景的对白
+        for d in dialogues:
+            d_start = d.get("start", 0)
+            # 加上微小偏移量 0.1s，防止刚好压线的问题
+            d_check = d_start + 0.01
+
+            for s in sorted_scenes:
+                if s.get("start", 0) <= d_check < s.get("end", 0):
+                    scene_map[s["_unique_id"]]["dialogues"].append(d)
+                    break
+
+        return scene_map
+
+    @classmethod
+    def _calculate_advanced_metrics(cls, scenes_map: Dict) -> Dict:
+        """
+        [算法移植]
+        完全复刻 CharacterMetricsCalculator 的逻辑。
+        """
+        # --- 步骤 1: 本地预处理 (移植自 metrics_service._local_preprocessing) ---
+        metrics = defaultdict(
+            lambda: {
+                "scene_count": 0,
+                "dialogue_count": 0,
+                "dialogue_total_length": 0,
+                "dialogue_total_duration": 0.0,
+                "co_occurrence": defaultdict(int),
+                "raw_names": set(),  # 记录原始拼写
+            }
         )
-        logger.info("“摘要”报告已生成。")
 
-        # 2. 保存“详情”报告
-        occurrence_csv = self._generate_occurrence_csv(occurrences)
-        occurrence_filename = f"character_OCCURRENCES_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        self.project.character_occurrence_report.save(
-            occurrence_filename, ContentFile(occurrence_csv.encode("utf-8-sig")), save=False
-        )
-        logger.info("“详情”报告已生成。")
+        # 排除模式 (这里可以做成配置项)
+        exclude_patterns = ["Minor", "路人", "Unknown"]
 
-        # 3. 一次性保存对 project 实例的所有修改
-        self.project.save()
+        for scene_obj in scenes_map.values():
+            dialogues_in_scene = scene_obj.get("dialogues", [])
 
-        logger.info(f"所有 L1 审计报告已成功为项目 {self.project.name} 生成并保存。")
+            # 1.1 识别当前场景出现的角色 (Set 去重)
+            present_characters = set()
+
+            # 先遍历一遍找出本场所有角色
+            for d in dialogues_in_scene:
+                raw_speaker = d.get("speaker", "").strip()
+                if not raw_speaker:
+                    continue
+
+                # 排除过滤
+                if any(raw_speaker.startswith(p) for p in exclude_patterns):
+                    continue
+
+                # 归一化 Key (用于聚合统计，忽略大小写)
+                speaker_key = " ".join(raw_speaker.lower().split())
+
+                present_characters.add(speaker_key)
+                metrics[speaker_key]["raw_names"].add(raw_speaker)
+
+            # 1.2 更新场景计数 (Scene Count)
+            for char_key in present_characters:
+                metrics[char_key]["scene_count"] += 1
+
+            # 1.3 计算共现 (Interaction / Co-occurrence)
+            # 如果本场只有1个人，就没有共现
+            for char1 in present_characters:
+                for char2 in present_characters:
+                    if char1 != char2:
+                        metrics[char1]["co_occurrence"][char2] += 1
+
+            # 1.4 累加对白指标 (Lines, Words, Duration)
+            for d in dialogues_in_scene:
+                raw_speaker = d.get("speaker", "").strip()
+                if not raw_speaker:
+                    continue
+
+                # 同样要做排除检查
+                if any(raw_speaker.startswith(p) for p in exclude_patterns):
+                    continue
+
+                speaker_key = " ".join(raw_speaker.lower().split())
+
+                # 只有在 present_characters 里的才算 (防止逻辑不一致)
+                if speaker_key in present_characters:
+                    metrics[speaker_key]["dialogue_count"] += 1
+                    metrics[speaker_key]["dialogue_total_length"] += len(d.get("text", ""))  # V5 Schema 是 text
+
+                    # V5 Schema 直接是 float 时间
+                    dur = d.get("end", 0) - d.get("start", 0)
+                    metrics[speaker_key]["dialogue_total_duration"] += dur
+
+        # --- 步骤 2: 计算重要度 (移植自 metrics_service._calculate_importance_scores) ---
+        roster = []
+        if not metrics:
+            return {"character_roster": [], "name_issues": []}
+
+        # 2.1 获取最大值用于归一化 (防止除以0)
+        target_chars = metrics.keys()
+
+        def safe_max(iterable):
+            val = max(iterable, default=0)
+            return val if val > 0 else 1
+
+        max_vals = {
+            "scene": safe_max(metrics[c]["scene_count"] for c in target_chars),
+            "dialogue": safe_max(metrics[c]["dialogue_count"] for c in target_chars),
+            "length": safe_max(metrics[c]["dialogue_total_length"] for c in target_chars),
+            "duration": safe_max(metrics[c]["dialogue_total_duration"] for c in target_chars),
+            "interaction": safe_max(len(metrics[c]["co_occurrence"]) for c in target_chars),
+        }
+
+        # 权重配置 (保持原默认值)
+        weights = {"presence": 0.7, "interaction": 0.3}
+
+        for key, data in metrics.items():
+            # 复刻原版公式：四维归一化求和
+            presence_score = (
+                data["scene_count"] / max_vals["scene"]
+                + data["dialogue_count"] / max_vals["dialogue"]
+                + data["dialogue_total_length"] / max_vals["length"]
+                + data["dialogue_total_duration"] / max_vals["duration"]
+            )
+
+            interaction_score = len(data["co_occurrence"]) / max_vals["interaction"]
+
+            # 最终得分
+            final_score = (presence_score * weights["presence"]) + (interaction_score * weights["interaction"])
+
+            # 选一个最好看的名字用于展示 (取第一个原始写法)
+            display_name = list(data["raw_names"])[0] if data["raw_names"] else key
+
+            roster.append(
+                {
+                    "name": display_name,
+                    "key": key,
+                    "weight_score": round(final_score, 4),  # 综合得分
+                    # 为了 Admin 进度条展示，这里做一个相对百分比 (最大可能得分约为 4 * 0.7 + 1 * 0.3 = 3.1)
+                    # 简单处理：除以列表里最高的分数作为 100%
+                    "_raw_score": final_score,
+                    "stats": {
+                        "lines": data["dialogue_count"],
+                        "duration_sec": round(data["dialogue_total_duration"], 2),
+                        "scene_count": data["scene_count"],  # 新增展示
+                        "interaction_count": len(data["co_occurrence"]),  # 新增展示
+                    },
+                    "variations": list(data["raw_names"]),
+                }
+            )
+
+        # 排序
+        roster.sort(key=lambda x: x["weight_score"], reverse=True)
+
+        # 补充 weight_percent (相对于第一名的百分比，用于 UI 进度条)
+        top_score = roster[0]["_raw_score"] if roster else 1
+        for r in roster:
+            pct = (r["_raw_score"] / top_score) * 100 if top_score > 0 else 0
+            r["weight_percent"] = f"{round(pct, 1)}%"
+            del r["_raw_score"]  # 清理临时字段
+
+        # --- 步骤 3: 检查拼写问题 ---
+        issues = []
+        for r in roster:
+            if len(r["variations"]) > 1:
+                issues.append({"level": "warning", "msg": f"角色 '{r['name']}' 存在多种拼写写法", "details": r["variations"]})
+
+        return {"character_roster": roster, "name_issues": issues}

@@ -1,5 +1,6 @@
 # apps/workflow/transcoding/tasks.py
 
+import json  # [新增] 用于解析 ffprobe 的 JSON 输出
 import logging
 import os
 import subprocess
@@ -23,26 +24,13 @@ def _check_and_update_project_status(project: TranscodingProject):
     """
     检查给定项目下的所有转码任务状态，并更新项目的聚合状态。
     """
-    # 刷新对象以获取最新状态
     project.refresh_from_db()
-
     all_jobs = project.transcoding_jobs.all()
-    total_jobs = all_jobs.count()
 
-    if total_jobs == 0:
+    if all_jobs.count() == 0:
         return
 
-    # [核心修复] 使用字符串字面量，避开 STATUS vs Status 的属性引用坑
-    # 同时也为了兼容 model_utils Choices 的取值方式
-
-    # 检查是否有失败的任务
-    # 注意：这里假设数据库里存的就是 "ERROR" 或 "FAILED" 这样的字符串
-    # 根据日志报错，之前的 STATUS.CREATED 说明定义可能是 Choices
-
-    # 我们直接查数据库字段的值，这是最安全的
     failed_exists = all_jobs.filter(status="ERROR").exists()
-
-    # 检查是否还有未完成的任务
     running_exists = all_jobs.filter(status__in=["PENDING", "PROCESSING", "CREATED"]).exists()
 
     new_status = project.status
@@ -50,10 +38,8 @@ def _check_and_update_project_status(project: TranscodingProject):
     if failed_exists:
         new_status = "FAILED"
     elif not running_exists:
-        # 没有正在跑的，也没有失败的，说明全成功了
         new_status = "COMPLETED"
     else:
-        # 还有在跑的，保持 PROCESSING (或不做改变)
         return
 
     if project.status != new_status:
@@ -67,6 +53,7 @@ def generate_waveform_task(media_id):
     """
     独立任务：为指定 Media 生成波形数据
     """
+    # ... (保持原样，未修改) ...
     logger.info(f"Starting waveform generation for Media {media_id}")
     try:
         media = Media.objects.get(id=media_id)
@@ -74,28 +61,21 @@ def generate_waveform_task(media_id):
             logger.warning(f"Media {media_id} has no source video, skipping waveform.")
             return
 
-        # 准备临时路径
         temp_dir = Path(settings.MEDIA_ROOT) / "temp_waveforms"
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         json_filename = f"waveform_{media.id}.json"
         temp_json_path = temp_dir / json_filename
 
-        # 执行生成
         success = generate_peaks_from_video(media.source_video.path, temp_json_path)
 
         if success and temp_json_path.exists():
-            # 保存到 Media 模型
             with open(temp_json_path, "rb") as f:
                 media.waveform_data.save(json_filename, ContentFile(f.read()), save=True)
-
             logger.info(f"Waveform generated and saved for Media {media_id}")
-
-            # 清理
             os.remove(temp_json_path)
         else:
             logger.error(f"Failed to generate waveform for Media {media_id}")
-
     except Exception as e:
         logger.error(f"Error in generate_waveform_task: {e}", exc_info=True)
 
@@ -103,8 +83,8 @@ def generate_waveform_task(media_id):
 @shared_task(name="apps.workflow.transcoding.tasks.run_transcoding_job")
 def run_transcoding_job(job_id):
     """
-    (V2.4 Status 修复版)
-    执行转码 -> 保存文件 -> 触发分发 -> 更新项目状态
+    (V2.5 Duration Fix)
+    执行转码 -> [新增] 提取并更新时长 -> 保存文件 -> 触发分发 -> 更新项目状态
     """
     try:
         job = TranscodingJob.objects.select_related("project", "profile", "media__asset").get(id=job_id)
@@ -112,15 +92,12 @@ def run_transcoding_job(job_id):
         logger.error(f"Job {job_id} not found.")
         return
 
-    # [修复] 统一使用字符串字面量或确保 Status 属性正确
-    # 这里我们直接用字符串，这是 Django Choices 的通用做法
     if job.status == "PENDING":
-        job.start()  # start() 方法内部应该会设为 PROCESSING
+        job.start()
         job.save()
     elif job.status != "PROCESSING":
         logger.warning(f"Job {job_id} is {job.status}, skipping start.")
 
-    # 准备路径
     media = job.media
     if not media.source_video:
         logger.error(f"Job {job_id}: Media has no source video.")
@@ -138,41 +115,76 @@ def run_transcoding_job(job_id):
     temp_output_path = temp_output_dir / temp_output_filename
 
     try:
-        # FFmpeg 执行
+        # 1. FFmpeg 执行转码
         encoding_params = job.profile.ffmpeg_command.split()
         command = ["ffmpeg", "-i", str(source_video_path), *encoding_params, str(temp_output_path), "-y"]
 
         logger.info(f"FFmpeg cmd: {' '.join(command)}")
         subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8")
 
-        # 原子化：保存 + 触发分发
+        # === [核心新增] 2. FFprobe 提取精确时长并回写 Media ===
+        try:
+            probe_cmd = [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                str(temp_output_path),
+            ]
+            result = subprocess.run(probe_cmd, check=True, capture_output=True, text=True)
+            metadata = json.loads(result.stdout)
+
+            # 优先尝试从 format 中获取
+            duration_str = metadata.get("format", {}).get("duration")
+
+            # 如果 format 里没有，尝试从第一个 stream 获取
+            if not duration_str:
+                streams = metadata.get("streams", [])
+                if streams:
+                    duration_str = streams[0].get("duration")
+
+            if duration_str:
+                exact_duration = float(duration_str)
+
+                # 仅当数据库里的时长无效 (0 或 None) 或者你想强制以转码后文件为准时更新
+                # 这里我们强制更新，保证转码后文件与数据库一致
+                if abs(media.duration - exact_duration) > 0.1:  # 只有差异超过0.1秒才更新，减少DB写操作
+                    media.duration = exact_duration
+                    media.save(update_fields=["duration"])
+                    logger.info(f"Updated Media {media.id} duration to {exact_duration}s based on transcoding output.")
+            else:
+                logger.warning(f"Could not extract duration from ffprobe output for Job {job_id}")
+
+        except Exception as probe_error:
+            # 探测失败不应阻断流程，记录日志即可
+            logger.error(f"Failed to probe duration for Job {job_id}: {probe_error}")
+
+        # === [核心新增结束] ===
+
+        # 3. 原子化：保存 + 触发分发
         with transaction.atomic():
             with open(temp_output_path, "rb") as f:
                 job.output_file.save(temp_output_filename, ContentFile(f.read()), save=False)
 
-            job.queue_for_qa()  # 状态变为 QA_PENDING
+            job.queue_for_qa()
             job.save()
 
             delivery_job = DeliveryJob.objects.create(source_object=job)
-
             transaction.on_commit(lambda: run_delivery_job.delay(delivery_job.id))
 
-            # [新增] 触发波形生成任务
-            # 我们使用 on_commit 确保 DB 事务完成后再发消息
-            # 注意：波形是针对 Media 的，只需生成一次。
-            # 如果该 Media 还没有波形数据，则触发生成。
             if not job.media.waveform_data:
                 transaction.on_commit(lambda: generate_waveform_task.delay(job.media.id))
 
         logger.info(f"Job {job_id} finished transcoding, triggering delivery {delivery_job.id}")
-
-        # [关键] 更新项目状态
         _check_and_update_project_status(job.project)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}", exc_info=True)
         if job:
-            job.fail()  # 状态变为 ERROR
+            job.fail()
             job.save()
             _check_and_update_project_status(job.project)
         raise e

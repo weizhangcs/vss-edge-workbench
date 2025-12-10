@@ -8,11 +8,12 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from apps.workflow.transcoding.jobs import TranscodingJob
 
 from .jobs import AnnotationJob
+from .projects import AnnotationProject
 from .services.annotation_service import AnnotationService
 
 logger = logging.getLogger(__name__)
@@ -109,3 +110,13 @@ def annotation_save_api(request, job_id):
     except Exception as e:
         logger.error(f"Save failed for Job {job_id}: {e}", exc_info=True)
         return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+
+@require_GET
+def trigger_audit(request, project_id):
+    project = AnnotationProject.objects.get(id=project_id)
+
+    # 这行代码会触发全量计算，并生成一个 JSON 文件存储在 annotation_audit_report 字段
+    report = project.run_audit()
+
+    return JsonResponse(report)

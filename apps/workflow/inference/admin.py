@@ -4,8 +4,9 @@ import json
 import logging
 
 from django.contrib import admin
+from django.contrib.admin.utils import unquote
 from django.core.serializers.json import DjangoJSONEncoder
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
@@ -123,7 +124,14 @@ class InferenceProjectAdmin(ModelAdmin):
         context = extra_context or {}
         context.update({"show_save": False, "show_save_and_continue": False, "show_save_and_add_another": False})
 
-        project = self.get_object(request, object_id)
+        # [修复 1] 规范化 object_id (虽然 UUID 通常不需要，但这是 Admin 规范)
+        obj_id = unquote(object_id)
+
+        # [修复 2] 安全获取对象
+        project = self.get_object(request, obj_id)
+        if project is None:
+            # 如果对象不存在（可能被删了，或者 URL 输错了），直接抛出标准的 404 页面
+            raise Http404(f"InferenceProject with ID {obj_id} does not exist.")
 
         # 1. 读取角色矩阵 (逻辑不变)
         character_data = {"all_characters": [], "importance_scores": {}, "min_score": 0, "max_score": 0}
@@ -131,29 +139,45 @@ class InferenceProjectAdmin(ModelAdmin):
         error_msg = None
 
         try:
-            if project.annotation_project and project.annotation_project.local_metrics_result_file:
-                with project.annotation_project.local_metrics_result_file.open("r") as f:
-                    metrics_data = json.load(f)
-                    all_chars = metrics_data.get("all_characters_found", [])
-                    scores = metrics_data.get("importance_scores", {})
+            anno_proj = project.annotation_project
+            # [适配] 检查新字段 annotation_audit_report
+            if anno_proj and anno_proj.annotation_audit_report:
+                with anno_proj.annotation_audit_report.open("r") as f:
+                    audit_data = json.load(f)
 
-                    if all_chars and scores:
-                        character_data["all_characters"] = all_chars
-                        character_data["importance_scores"] = scores
-                        all_values = list(scores.values())
-                        if all_values:
-                            character_data["min_score"] = max(0, min(all_values))
-                            character_data["max_score"] = max(all_values)
-                        metrics_loaded = True
+                    # [数据映射] Audit Report (New) -> Frontend Props (Old)
+                    # 路径: semantic_audit -> character_roster
+                    roster = audit_data.get("semantic_audit", {}).get("character_roster", [])
+
+                    if roster:
+                        # 提取名字列表
+                        all_chars = [r["name"] for r in roster if r.get("name")]
+
+                        # 提取权重字典 { "Name": score }
+                        # 现在的 weight_score 是归一化后的分值 (0.0 - 4.0 左右)
+                        scores = {r["name"]: r.get("weight_score", 0) for r in roster if r.get("name")}
+
+                        if all_chars:
+                            character_data["all_characters"] = all_chars
+                            character_data["importance_scores"] = scores
+
+                            # 计算极值，用于前端热力图渲染
+                            all_values = list(scores.values())
+                            if all_values:
+                                character_data["min_score"] = min(all_values)
+                                character_data["max_score"] = max(all_values)
+
+                            metrics_loaded = True
                     else:
-                        error_msg = "角色矩阵文件内容不完整。"
+                        error_msg = "审计报告中未发现角色数据 (可能无人名标注)。"
             else:
-                error_msg = "未找到关联的‘角色矩阵’文件。"
-        except Exception as e:
-            logger.error(f"Error loading metrics: {e}")
-            error_msg = f"读取角色矩阵文件失败: {str(e)}"
+                error_msg = "未找到‘产出物审计报告’。请先在标注项目中运行审计。"
 
-        # 2. 历史列表 (注入 ragActionUrl)
+        except Exception as e:
+            logger.error(f"Error loading audit report: {e}", exc_info=True)
+            error_msg = f"读取数据失败: {str(e)}"
+
+            # 2. 历史列表 (保持不变)
         jobs_list = InferenceJob.objects.filter(project=project, job_type=InferenceJob.TYPE.FACTS).order_by("-created")
         history_items = []
 

@@ -2,6 +2,7 @@
 
 import logging
 
+from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.db import models
 from django_fsm import transition
@@ -17,24 +18,15 @@ fs = FileSystemStorage(location="/app/media_root")
 
 
 def get_annotation_upload_path(instance, filename):
-    """
-    为原子工程文件生成动态路径。
-    结构: annotation/<project_id>/jobs/<job_id>_<filename>
-    例如: annotation/10/jobs/55_scene_data.json
-    """
+    # 动态路径: annotation/<project_id>/jobs/<job_id>_<filename>
     return f"annotation/{instance.project.id}/jobs/{instance.id}_{filename}"
 
 
 class AnnotationJob(BaseJob):
     """
-    (V5.1 重构版)
+    (V5.2 A/B 双缓冲版)
     标注工作流的“原子任务”模型。
-    对应 Schemas.MediaAnnotation。
-
-    职责：
-    1. 维护 Media 与 Project 的多对一关系。
-    2. 存储该 Media 对应的全量工程数据 (JSON)。
-    3. 跟踪任务状态 (Pending -> Processing -> Completed)。
+    新增 Current/Backup 版本管理机制。
     """
 
     # --- 关联关系 ---
@@ -45,20 +37,71 @@ class AnnotationJob(BaseJob):
     media = models.ForeignKey(Media, on_delete=models.CASCADE, related_name="annotation_jobs", verbose_name="关联媒体文件")
 
     # --- 核心产出物 (SSOT) ---
-    # 存储 Schemas.MediaAnnotation 的 JSON 文件
-    # 包含：Scenes, Dialogues, Captions, Highlights 及其 Context (is_verified, origin)
+
+    # 1. Current (当前工作版本)
     annotation_file = models.FileField(
-        storage=fs, upload_to=get_annotation_upload_path, blank=True, null=True, verbose_name="标注工程文件 (JSON)"
+        storage=fs, upload_to=get_annotation_upload_path, blank=True, null=True, verbose_name="标注工程文件 (Current)"
     )
 
-    # --- 状态机转换 (继承自 BaseJob 的 'status' 字段) ---
+    # 2. Backup (上一版本/修订前快照)
+    # [新增] 用于支持 A/B 轮转和 Revise 回滚
+    annotation_file_backup = models.FileField(
+        storage=fs, upload_to=get_annotation_upload_path, blank=True, null=True, verbose_name="标注工程文件 (Backup)"
+    )
+
+    # --- 基础设施: A/B 轮转逻辑 ---
+
+    def rotate_and_save(self, content_str: str, save_to_db: bool = True):
+        """
+        [Job级 A/B 轮转]
+        当保存新的标注数据时调用：
+        1. Current -> Backup
+        2. New -> Current
+        """
+        # 1. 备份 Current -> Backup
+        if self.annotation_file:
+            try:
+                self.annotation_file.open("rb")
+                existing_content = self.annotation_file.read()
+                self.annotation_file.close()
+
+                if existing_content:
+                    backup_filename = f"job_{self.id}_backup.json"
+                    self.annotation_file_backup.save(backup_filename, ContentFile(existing_content), save=False)
+            except Exception as e:
+                logger.warning(f"Job {self.id}: Failed to rotate backup: {e}")
+
+        # 2. 写入 New -> Current
+        new_filename = f"job_{self.id}_annotation.json"
+        self.annotation_file.save(
+            new_filename, ContentFile(content_str.encode("utf-8")), save=save_to_db  # 由调用者决定是否立即落盘
+        )
+
+    def rollback_to_backup(self):
+        """
+        [回滚能力]
+        当用户点击“放弃修订”或“回退”时调用。
+        将 Backup 覆盖回 Current。
+        """
+        if not self.annotation_file_backup:
+            return False, "No backup available."
+
+        try:
+            self.annotation_file_backup.open("rb")
+            backup_content = self.annotation_file_backup.read()
+            self.annotation_file_backup.close()
+
+            # 覆盖 Current
+            self.annotation_file.save(f"job_{self.id}_annotation.json", ContentFile(backup_content), save=True)
+            return True, "Rollback successful."
+        except Exception as e:
+            return False, str(e)
+
+    # --- 状态机转换 ---
 
     @transition(field="status", source=BaseJob.STATUS.PENDING, target=BaseJob.STATUS.PROCESSING)
     def start_annotation(self):
-        """
-        开始标注 (PENDING -> PROCESSING)
-        通常由用户在 Workbench 中首次加载或点击“开始”触发。
-        """
+        """开始标注"""
         pass
 
     @transition(
@@ -71,22 +114,33 @@ class AnnotationJob(BaseJob):
         target=BaseJob.STATUS.COMPLETED,
     )
     def complete_annotation(self):
-        """
-        完成标注 (PROCESSING/REVISING -> COMPLETED)
-        用户点击“提交/完成”时触发，表明该文件的标注已通过人工确认。
-        """
+        """完成标注"""
         pass
 
     @transition(field="status", source=BaseJob.STATUS.COMPLETED, target=BaseJob.STATUS.REVISING)
     def revise(self):
         """
-        修订任务 (COMPLETED -> REVISING)
-        当已完成的任务需要重新修改时触发。
-
-        [注]: 旧版这里有 l1_output_file 的备份逻辑。
-        在 V5.1 中，建议将"版本控制"逻辑移至 Service 层 (如 AnnotationService.save_annotation)，
-        在保存新 JSON 前自动备份旧 JSON，保持 Model 层纯净。
+        [修订逻辑增强]
+        当任务从 COMPLETED 变为 REVISING 时，强制执行一次备份。
+        这样如果修订改乱了，用户可以用 rollback_to_backup 恢复到 COMPLETED 时的状态。
         """
+        # 显式触发一次“原地轮转”：把 Current 复制给 Backup，Current 保持不变
+        if self.annotation_file:
+            try:
+                self.annotation_file.open("rb")
+                content = self.annotation_file.read()
+                self.annotation_file.close()
+
+                # 写入 Backup
+                self.annotation_file_backup.save(
+                    f"job_{self.id}_revise_backup.json",
+                    ContentFile(content),
+                    save=False,  # 状态转换通常会在 View 层调 save()，这里先更新内存
+                )
+            except Exception as e:
+                logger.warning(f"Job {self.id}: Failed to create revise backup: {e}")
+
+        # 状态变更交给 django-fsm
         super().revise()
 
     def __str__(self):
@@ -95,5 +149,4 @@ class AnnotationJob(BaseJob):
     class Meta:
         verbose_name = "标注任务"
         verbose_name_plural = verbose_name
-        # 默认按媒体序列号排序，保证生成 Blueprint 时章节顺序正确
         ordering = ["media__sequence_number", "id"]

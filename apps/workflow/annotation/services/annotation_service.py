@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from django.core.files.base import ContentFile
+from ...common.baseJob import BaseJob
 
 # 引入 Schema 定义
 from ..schemas import DataOrigin, DialogueContent, DialogueItem, ItemContext, MediaAnnotation
@@ -58,7 +58,7 @@ class AnnotationService:
             media_id=str(job.media.id),
             file_name=job.media.title,
             source_path=source_path,
-            duration=0.0,  # TODO: 理论上应该在media asset或transcoding的时候自动获取时长，现在还没有写这个代码，所以这里先赋值 0 跳过schemas的校验
+            duration=job.media.duration,
             # [注入] 波形图数据 (FileField 自动生成的 URL)
             waveform_url=job.media.waveform_data.url if job.media.waveform_data else None,
         )
@@ -126,11 +126,13 @@ class AnnotationService:
         # 3. 序列化
         json_content = annotation.model_dump_json(indent=2, exclude_none=True)
 
-        # 4. 落盘
-        # 使用固定文件名，确保每次保存覆盖同一个逻辑文件，或者您可以加上时间戳做版本控制
-        file_name = f"annotation_{job.id}.json"
+        # [修改] 使用 Job 的轮转保存方法，而不是直接 file.save
+        # 这样每次保存都会自动生成一个 Backup
+        job.rotate_and_save(json_content, save_to_db=True)
 
-        # save=True 会触发 update 数据库字段
-        job.annotation_file.save(file_name, ContentFile(json_content.encode("utf-8")), save=True)
+        # 更新状态为 PROCESSING (如果之前是 PENDING)
+        if job.status == BaseJob.STATUS.PENDING:
+            job.start_annotation()
+            job.save()
 
         return annotation

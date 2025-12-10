@@ -65,6 +65,10 @@ class Media(TimeStampedModel):
     title = models.CharField(max_length=255, verbose_name="媒体标题")
     sequence_number = models.PositiveIntegerField(default=1, verbose_name="序号")
 
+    # --- 核心元数据 ---
+    # [新增] 时长字段：默认 0.0，由 Transcoding Task 精确回填
+    duration = models.FloatField(default=0.0, verbose_name="时长 (秒)", help_text="视频精确时长，由转码任务自动更新")
+
     # 源文件 (Master) - 配合 EdgeLocalStorage 自动生成指向 9999 的绝对 URL
     source_video = models.FileField(upload_to=get_media_upload_path, blank=True, null=True, verbose_name="源视频文件")
     source_subtitle = models.FileField(
