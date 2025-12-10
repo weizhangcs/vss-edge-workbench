@@ -1,6 +1,6 @@
 /* frontend/src/features/annotation/Workbench/style.css */
 
-/* 1. 全局布局容器 */
+/* --- 1. 全局布局容器 --- */
 .wb-container {
     display: flex;
     flex-direction: column;
@@ -11,7 +11,7 @@
 }
 
 .wb-header {
-    height: 56px; /* 稍微压扁头部，留更多空间给内容 */
+    height: 56px;
     flex-shrink: 0;
     background-color: white;
     border-bottom: 1px solid #e5e7eb;
@@ -22,7 +22,54 @@
     z-index: 50;
 }
 
-/* 主体区域 */
+/* [新增] 头部左侧区域 */
+.wb-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* [新增] 版本号标签 */
+.wb-version-tag {
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+/* [新增] 头部中间：播放控制器容器 */
+.wb-player-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* [新增] 播放按钮组 */
+.wb-control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f3f4f6;
+    padding: 4px 16px;
+    border-radius: 99px;
+}
+
+/* [新增] 时间显示 */
+.wb-time-display {
+    font-family: monospace;
+    color: #4b5563;
+    width: 100px;
+    text-align: center;
+    border-left: 1px solid #e5e7eb;
+    padding-left: 8px;
+}
+
+/* [新增] 头部右侧：保存提示 */
+.wb-save-hint {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: bold;
+}
+
+/* --- 主体区域 --- */
 .wb-body {
     flex: 1;
     display: flex;
@@ -31,15 +78,13 @@
     height: calc(100vh - 56px);
 }
 
-/* --- 上半部分：舞台区 (Stage) --- */
+/* --- 舞台区 (Stage) --- */
 .wb-stage-pane {
-    /* 将 45% 改小，比如 35% 或 40%。
-           或者使用视窗高度单位 vh，例如 height: 35vh; */
-    height: 60%;  /* <--- 尝试修改这里 */
+    height: 60%;
     flex-shrink: 0;
     display: flex;
     flex-direction: row;
-    min-height: 300px; /* 保持这个最小高度很好 */
+    min-height: 300px;
     background-color: #000;
     border-bottom: 1px solid #374151;
 }
@@ -55,21 +100,20 @@
 }
 
 .wb-inspector-area {
-    width: 480px; /* [核心调整] 加宽侧边栏 */
+    width: 480px;
     flex-shrink: 0;
     background-color: white;
     border-left: 1px solid #e5e7eb;
     overflow-y: auto;
     z-index: 40;
-    /* 增加一个内边距，让内容不要贴边 */
-    padding: 24px;
+    /* [优化] 减少这里的内边距，避免和 Inspector 内部的 padding 叠加导致间距过大 */
+    padding: 0;
 }
 
-/* --- 下半部分：时间轴区 (Timeline) --- */
+/* --- 时间轴区 (Timeline) --- */
 .wb-timeline-pane {
     flex: 1;
-    /* 增加一个最大高度限制，防止在特别大的屏幕上时间轴区域高得离谱 */
-    max-height: 60vh; /* <--- 建议增加这里 */
+    max-height: 60vh;
     display: flex;
     flex-direction: column;
     background-color: #111827;
@@ -90,139 +134,153 @@
     font-size: 12px;
 }
 
+/* [新增] 工具栏按钮组 */
+.wb-toolbar-actions {
+    display: flex;
+    gap: 8px;
+    margin-right: 24px;
+}
+
+/* [新增] 工具栏提示文字 */
+.wb-toolbar-hint {
+    font-size: 12px;
+    color: #6b7280;
+    flex: 1;
+}
+
+/* [新增] 工具栏缩放滑块容器 */
+.wb-toolbar-slider {
+    width: 200px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .wb-timeline-body {
     flex: 1;
     position: relative;
-    overflow: hidden; /* 内部容器负责滚动 */
+    overflow: hidden;
 }
 
-/* --- Timeline 组件内部样式 --- */
+/* --- Timeline 组件内部样式 (核心修复区) --- */
 .timeline-container {
     width: 100%;
     height: 100%;
     overflow-x: auto;
-    overflow-y: auto; /* [核心修复] 允许垂直滚动，找回第四条泳道 */
+    overflow-y: auto;
     background-color: #111827;
     position: relative;
     user-select: none;
 }
 
-.timeline-inner-wrapper {
-    height: 100%; /* 确保高度撑满，点击空白处有效 */
-    min-height: 100%;
+/* ... 省略部分未修改的基础 Timeline 样式 (ruler, tick, track等) ... */
+.timeline-inner-wrapper { height: 100%; min-height: 100%; position: relative; }
+.timeline-ruler { position: sticky; top: 0; z-index: 20; background-color: #1f2937; border-bottom: 1px solid #374151; cursor: pointer; }
+.timeline-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid #4b5563; padding-left: 4px; font-size: 10px; color: #9ca3af; pointer-events: none; }
+.timeline-track-area { padding-top: 8px; padding-bottom: 40px; }
+/* 2. 轨道容器 - 稍微增加底部间距 */
+.timeline-track {
     position: relative;
+    /* 增加高度给 Label 腾出空间，或者依靠内部元素的布局撑开 */
+    height: 120px; /* 稍微加高一点，容纳文字+数据条 */
+    margin-bottom: 8px;
 }
-
-.timeline-ruler {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background-color: #1f2937;
-    border-bottom: 1px solid #374151;
-    cursor: pointer;
-}
-
-.timeline-tick {
+/* 3. 轨道名称 (Label) - 修改：移至上方，变小，不遮挡 */
+.timeline-track-label {
     position: absolute;
     top: 0;
-    bottom: 0;
-    border-left: 1px solid #4b5563; /* 加深刻度颜色 */
-    padding-left: 4px;
-    font-size: 10px;
-    color: #9ca3af;
-    pointer-events: none;
+    left: 0;
+    width: 100%;
+    height: 16px; /* 顶部保留 20px 给文字 */
+
+    /* 文字样式优化 */
+    display: flex;
+    align-items: center;
+    padding-left: 4px; /* 左对齐，稍微留点空 */
+    font-size: 11px;
+    color: #9ca3af; /* 使用低调的灰色，不要太抢眼 */
+    font-weight: 600;
+
+    /* 移除之前的背景色和边框，让它看起来像标题 */
+    background-color: transparent;
+    backdrop-filter: none;
+    border: none;
+    box-shadow: none;
+    z-index: 10;
+    pointer-events: none; /* 防止文字挡住点击 */
 }
 
-.timeline-track-area {
-    padding-top: 8px;
-    padding-bottom: 40px; /* 底部留白，方便滚动 */
-}
-
-.timeline-track {
-    margin-bottom: 8px;
-    position: relative;
-}
-
+/* 4. 轨道背景条 (BG) - 修改：向下偏移，避开 Label */
 .timeline-track-bg {
     position: absolute;
-    inset: 0;
+    left: 0;
+    right: 0;
+
+    /* 关键修改：顶部空出 20px 给 Label */
+    top: 16px;
+    bottom: 0;
+
     background-color: rgba(31, 41, 55, 0.5);
     border-top: 1px solid rgba(55, 65, 81, 0.5);
     border-bottom: 1px solid rgba(55, 65, 81, 0.5);
 }
 
-.timeline-track-label {
-    position: sticky;
-    left: 0;
-    z-index: 10;
-    width: 100px;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    padding-left: 12px;
-    background-color: rgba(31, 41, 55, 0.9); /* 加深背景防透视 */
-    backdrop-filter: blur(4px);
-    border-right: 1px solid #374151;
-    font-size: 12px;
-    color: #e5e7eb; /* 亮白色文字 */
-    font-weight: 600;
-    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-}
-
+/* 5. 轨道数据块 (Clip) - 修改：向下偏移 */
 .timeline-clip {
     position: absolute;
-    top: 4px;
+
+    /* 关键修改：跟随 BG 向下偏移，并在 BG 内部留一点 padding */
+    top: 20px; /* 20px (Label) + 4px (Padding) */
     bottom: 4px;
+
     border-radius: 4px;
     cursor: pointer;
     display: flex;
     align-items: center;
     padding: 0 8px;
     overflow: hidden;
+
+    /* 保持之前的修复：防止文字撑开 */
+    box-sizing: border-box;
+
     white-space: nowrap;
     font-size: 12px;
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+
+    /* 回滚：取消 margin-left */
 }
+
 .timeline-clip:hover {
     filter: brightness(1.1);
     z-index: 5;
 }
 
-/* 游标优化：增加把手 */
-.timeline-cursor {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background-color: #ef4444;
-    z-index: 30;
+/* 优化片段内容的显示 */
+.timeline-clip-content {
+    /* 现有的样式 */
+    margin-left: 8px;
+    margin-right: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     pointer-events: none;
+
+    /* 关键 2: Flex 子项设置 */
+    /* 让内容自适应剩余空间，但允许压缩到 0 */
+    flex: 1;
+    min-width: 0; /* 绝对核心：没有这行，Flex子项不会小于内容宽度 */
 }
 
-.timeline-cursor-head {
-    position: absolute;
-    top: 0;
-    left: -6px;
-    width: 0;
-    height: 0;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-top: 8px solid #ef4444;
-}
-
-/* 滚动条 */
-.custom-scrollbar::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-    background-color: #111827;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #4b5563;
-    border-radius: 5px;
-    border: 2px solid #111827;
-}
-.custom-scrollbar::-webkit-scrollbar-corner {
-    background-color: #111827;
-}
+/* ... 游标、手柄、滚动条样式保持不变 ... */
+.timeline-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background-color: #ef4444; z-index: 30; pointer-events: none; }
+.timeline-cursor-head { position: absolute; top: 0; left: -6px; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; }
+.timeline-clip-handle { position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 20; transition: background-color 0.2s; }
+.timeline-clip-handle-left { left: 0; border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.timeline-clip-handle-right { right: 0; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.timeline-clip-handle:hover { background-color: rgba(255, 255, 255, 0.4); }
+.timeline-clip.dragging { opacity: 0.8; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.custom-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; background-color: #111827; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 5px; border: 2px solid #111827; }
+.custom-scrollbar::-webkit-scrollbar-corner { background-color: #111827; }

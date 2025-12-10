@@ -50,9 +50,9 @@ const SceneInspector = ({ data, onChange }) => {
                     placeholder="详细描述本场景发生的事件..."
                     value={data.description || ''}
                     onChange={(e) => onChange('description', e.target.value)}
-                    maxLength={500}
+                    style={{ minHeight: '80px' }}
                 />
-                <div className="char-count">{(data.description || '').length} / 500</div>
+                <div className="char-count">{(data.description || '').length} / 200</div>
             </div>
         </>
     );

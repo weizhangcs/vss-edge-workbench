@@ -3,8 +3,9 @@ import { Tooltip } from 'antd';
 import _ from 'lodash';
 import Waveform from './Waveform';
 import '../style.css';
+import { canTrackDo } from '../config/tracks';
 
-const TRACK_HEIGHT = 40;
+const TRACK_HEIGHT = 60;
 const HEADER_HEIGHT = 30;
 const WAVEFORM_HEIGHT = 60;
 
@@ -85,6 +86,15 @@ const SimpleTimeline = ({
     const handleClipMouseDown = (e, trackId, action, type) => {
         e.stopPropagation(); // 阻止冒泡，防止触发轨道点击
         e.preventDefault();
+
+        // [新增] 校验权限
+        if (type !== 'move' && !canTrackDo(trackId, 'resize')) {
+            return; // 如果该轨道不支持 resize，忽略边缘点击
+        }
+        if (type === 'move' && !canTrackDo(trackId, 'move')) {
+            return;
+        }
+
         setDraggingAction({
             trackId,
             actionId: action.id,
@@ -98,6 +108,7 @@ const SimpleTimeline = ({
 
     // B. 点击轨道空白处 -> 准备创建
     const handleTrackMouseDown = (e, trackId) => {
+
         // 如果点的是轨道背景
         const rect = containerRef.current.getBoundingClientRect();
         const scrollLeft = containerRef.current.scrollLeft;
@@ -132,9 +143,17 @@ const SimpleTimeline = ({
                     newStart = Math.max(0, draggingAction.originalStart + deltaTime);
                     newEnd = newStart + dur;
                 } else if (draggingAction.type === 'left') {
-                    newStart = Math.min(Math.max(0, draggingAction.originalStart + deltaTime), draggingAction.originalEnd - MIN_DURATION);
+                    // 左侧调整：改变 start，保持 end 不变 (除非碰到 min duration)
+                    newStart = Math.min(
+                        Math.max(0, draggingAction.originalStart + deltaTime),
+                        draggingAction.originalEnd - MIN_DURATION
+                    );
                 } else if (draggingAction.type === 'right') {
-                    newEnd = Math.max(draggingAction.originalStart + MIN_DURATION, draggingAction.originalEnd + deltaTime);
+                    // 右侧调整：改变 end，保持 start 不变
+                    newEnd = Math.max(
+                        draggingAction.originalStart + MIN_DURATION,
+                        draggingAction.originalEnd + deltaTime
+                    );
                 }
 
                 const newTracks = _.cloneDeep(tracks);
@@ -142,8 +161,14 @@ const SimpleTimeline = ({
                 if (track) {
                     const action = track.actions.find(a => a.id === draggingAction.actionId);
                     if (action) {
+                        // 实时更新本地状态，实现流畅拖拽
                         action.start = newStart;
                         action.end = newEnd;
+                        // 标记为已人工修改
+                        if (action.data) {
+                            action.data.is_verified = true;
+                            action.data.origin = 'human';
+                        }
                         onUpdate(newTracks);
                     }
                 }
@@ -224,67 +249,75 @@ const SimpleTimeline = ({
 
                 {/* 3. 轨道区域 */}
                 <div className="timeline-track-area">
-                    {tracks.map(track => (
-                        <div
-                            key={track.id}
-                            className="timeline-track"
-                            style={{ height: TRACK_HEIGHT }}
-                            // [新增] 轨道点击事件，开始画框
-                            onMouseDown={(e) => handleTrackMouseDown(e, track.id)}
-                        >
-                            <div className="timeline-track-bg" />
-                            <div className="timeline-track-label select-none">{track.name}</div>
+                    {tracks.map(track => {
+                        // 检查当前轨道是否支持 resize
+                        const canResize = canTrackDo(track.id, 'resize');
 
-                            {/* 渲染已有片段 */}
-                            {track.actions.map(action => {
-                                const isDragging = draggingAction?.actionId === action.id;
-                                const isSelected = selectedActionId === action.id;
+                        return (
+                            <div
+                                key={track.id}
+                                className="timeline-track"
+                                style={{ height: TRACK_HEIGHT }}
+                                onMouseDown={(e) => handleTrackMouseDown(e, track.id)}
+                            >
+                                <div className="timeline-track-bg" />
+                                <div className="timeline-track-label select-none">{track.name}</div>
 
-                                return (
-                                    <Tooltip key={action.id} title={isDragging ? '' : `${action.data.label || action.data.text}`}>
-                                        <div
-                                            className="timeline-clip"
-                                            style={{
-                                                left: action.start * scale,
-                                                width: (action.end - action.start) * scale,
-                                                backgroundColor: track.color || '#6366f1',
-                                                cursor: isDragging ? 'grabbing' : 'grab',
-                                                opacity: isDragging ? 0.8 : 1,
-                                                zIndex: isDragging ? 50 : 1,
-                                                transition: isDragging ? 'none' : 'left 0.1s, width 0.1s',
-                                                border: isSelected ? '2px solid #fbbf24' : '1px solid rgba(255, 255, 255, 0.2)',
-                                                boxShadow: isSelected ? '0 0 8px rgba(251, 191, 36, 0.5)' : 'none'
-                                            }}
-                                            onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'move')}
-                                        >
+                                {track.actions.map(action => {
+                                    const isDragging = draggingAction?.actionId === action.id;
+                                    const isSelected = selectedActionId === action.id;
+
+                                    return (
+                                        <Tooltip key={action.id} title={isDragging ? '' : (action.data.label || action.data.text)}>
                                             <div
-                                                className="timeline-clip-handle timeline-clip-handle-left"
-                                                onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'left')}
-                                            />
-                                            <div className="flex-1 overflow-hidden truncate px-2 pointer-events-none">
-                                                {action.data.label || action.data.text}
+                                                className={`timeline-clip ${isDragging ? 'dragging' : ''}`}
+                                                style={{
+                                                    left: action.start * scale,
+                                                    width: (action.end - action.start) * scale,
+                                                    backgroundColor: track.color || '#6366f1',
+                                                    cursor: isDragging ? 'grabbing' : 'grab',
+                                                    // ... 其他样式保持不变，或者已移入 css 类
+                                                    border: isSelected ? '2px solid #fbbf24' : '1px solid rgba(255, 255, 255, 0.2)',
+                                                    boxShadow: isSelected ? '0 0 8px rgba(251, 191, 36, 0.5)' : 'none'
+                                                }}
+                                                onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'move')}
+                                            >
+                                                {/* [核心修复] 只有支持 Resize 的轨道才渲染手柄 */}
+                                                {canResize && (
+                                                    <div
+                                                        className="timeline-clip-handle timeline-clip-handle-left"
+                                                        onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'left')}
+                                                    />
+                                                )}
+
+                                                <div className="timeline-clip-content">
+                                                    {action.data.label || action.data.text}
+                                                </div>
+
+                                                {canResize && (
+                                                    <div
+                                                        className="timeline-clip-handle timeline-clip-handle-right"
+                                                        onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'right')}
+                                                    />
+                                                )}
                                             </div>
-                                            <div
-                                                className="timeline-clip-handle timeline-clip-handle-right"
-                                                onMouseDown={(e) => handleClipMouseDown(e, track.id, action, 'right')}
-                                            />
-                                        </div>
-                                    </Tooltip>
-                                );
-                            })}
+                                        </Tooltip>
+                                    );
+                                })}
 
-                            {/* [新增] 渲染正在创建的“幽灵片段” (Ghost Clip) */}
-                            {creatingAction && creatingAction.trackId === track.id && (
-                                <div
-                                    className="absolute top-1 bottom-1 bg-white/30 border border-white/50 rounded pointer-events-none z-40"
-                                    style={{
-                                        left: Math.min(creatingAction.startAbsoluteX, creatingAction.startAbsoluteX + (creatingAction.currentX - creatingAction.startX)),
-                                        width: Math.abs(creatingAction.currentX - creatingAction.startX)
-                                    }}
-                                />
-                            )}
-                        </div>
-                    ))}
+                                {/* 幽灵片段 (保持不变) */}
+                                {creatingAction && creatingAction.trackId === track.id && (
+                                    <div
+                                        className="absolute top-1 bottom-1 bg-white/30 border border-white/50 rounded pointer-events-none z-40"
+                                        style={{
+                                            left: Math.min(creatingAction.startAbsoluteX, creatingAction.startAbsoluteX + (creatingAction.currentX - creatingAction.startX)),
+                                            width: Math.abs(creatingAction.currentX - creatingAction.startX)
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* 4. 游标 */}

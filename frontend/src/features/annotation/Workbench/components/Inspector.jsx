@@ -1,14 +1,22 @@
 import React, { useEffect } from 'react';
-import { Form, InputNumber, Button, Typography, Empty, Space, Tag } from 'antd';
-import { DeleteOutlined, ClockCircleOutlined, CheckCircleOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons'; // [新增图标]
+import { Form, Button, Typography, Empty, Tag, Divider, Tooltip, message } from 'antd';
+import {
+    DeleteOutlined,
+    CheckCircleOutlined,
+    RobotOutlined,
+    UserOutlined,
+    SaveOutlined,
+    ClockCircleOutlined,
+    EditOutlined,
+    AuditOutlined
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 import './inspectors/inspector.css';
 
 import SceneInspector from './inspectors/SceneInspector';
 import HighlightInspector from './inspectors/HighlightInspector';
 import DialogueInspector from './inspectors/DialogueInspector';
 import CaptionInspector from './inspectors/CaptionInspector';
-
-const { Title } = Typography;
 
 const Inspector = ({ action, track, onUpdate, onDelete }) => {
     const [form] = Form.useForm();
@@ -25,68 +33,38 @@ const Inspector = ({ action, track, onUpdate, onDelete }) => {
         }
     }, [action, form]);
 
+    // [Clean] 样式完全移入 inspector.css
     if (!action || !track) {
         return (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 text-center select-none bg-white">
+            <div className="inspector-empty-state">
                 <Empty description="未选中任何片段" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                <span className="text-xs mt-2 text-gray-400">点击时间轴上的色块进行编辑</span>
+                <span className="inspector-empty-hint">点击时间轴上的色块进行编辑</span>
             </div>
         );
     }
 
-    // [新增] 状态标签渲染组件
-    const renderStatusTag = () => {
-        const { origin, is_verified, ai_meta } = action.data;
+    // --- 核心业务逻辑 (保持不变) ---
 
-        // 1. 人工创建/修改
-        if (origin === 'human' || origin === 'HUMAN') {
-            return <Tag icon={<UserOutlined />} color="purple">人工修订</Tag>;
-        }
+    const handleDataUpdate = (updates, isStaging = false) => {
+        const currentData = action.data || {};
+        const now = new Date().toISOString();
 
-        // 2. AI 生成且已确认
-        if (is_verified) {
-            return <Tag icon={<CheckCircleOutlined />} color="success">AI (已确认)</Tag>;
-        }
+        const newData = {
+            ...currentData,
+            ...updates,
+            modified_at: now
+        };
 
-        // 3. AI 生成 (待确认)
-        // 根据置信度显示不同颜色
-        const confidence = ai_meta?.confidence ?? 1.0;
-        const color = confidence > 0.8 ? "cyan" : (confidence > 0.5 ? "orange" : "red");
-
-        return (
-            <Tag icon={<RobotOutlined />} color={color}>
-                AI预想 ({Math.round(confidence * 100)}%)
-            </Tag>
-        );
-    };
-
-    // 通用更新函数
-    const handleTimeChange = (e, field) => {
-        const val = parseFloat(e.target.value);
-        if (!isNaN(val)) {
-            // 时间改变也视为“人工修订”
-            handleDataUpdate({ [field]: val }, true);
-        }
-    };
-
-    // [修改] 统一的数据更新入口
-    // forceHuman: 是否强制标记为人工修改
-    const handleDataUpdate = (updates, forceHuman = false) => {
-        const newData = { ...action.data, ...updates };
-
-        // [核心逻辑] 只要用户修改了数据，就更新状态
-        // 策略：一旦修改，就被视为“人工介入”，is_verified 必为 true
-        // 如果是大幅修改内容，origin 改为 human；如果是微调，origin 可保持 AI 但状态变 verified
-        // 这里简化逻辑：只要动了，就是 Human Verified
-        if (forceHuman || !newData.is_verified) {
+        if (isStaging) {
             newData.is_verified = true;
-            // 可选：如果希望保留 "这是AI底稿，但我改过了" 的状态，可以不改 origin，只改 is_verified
-            // 这里按照您的要求 "更新成用户修改"，我们将 origin 设为 human
+            if (newData.origin !== 'human') {
+                newData.origin = 'human';
+            }
+        } else {
+            newData.is_verified = false;
             newData.origin = 'human';
         }
 
-        // 注意：onUpdate 接收的是完整的 action 对象
-        // 如果 updates 里包含 start/end，需要提取出来传给 action 根属性
         const newStart = updates.start !== undefined ? updates.start : action.start;
         const newEnd = updates.end !== undefined ? updates.end : action.end;
 
@@ -98,13 +76,68 @@ const Inspector = ({ action, track, onUpdate, onDelete }) => {
         });
     };
 
-    // 子组件回调适配
-    const onFormChange = (field, value) => {
-        handleDataUpdate({ [field]: value });
+    const handleFieldChange = (field, value) => {
+        handleDataUpdate({ [field]: value }, false);
+    };
+
+    const handleTimeChange = (e, field) => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) {
+            handleDataUpdate({ [field]: val }, false);
+        }
+    };
+
+    const handleLocalStage = () => {
+        handleDataUpdate({}, true);
+        message.success("状态已更新");
+    };
+
+    const isAiOrigin = (origin) => {
+        return ['ai_asr', 'ai_cv', 'ai_llm'].includes(origin);
+    };
+
+    // --- UI 渲染逻辑 ---
+
+    const renderInspectorHeader = () => {
+        const { origin, is_verified, ai_meta, modified_at } = action.data;
+
+        let typeTag;
+        if (isAiOrigin(origin)) {
+            const confidence = ai_meta?.confidence ? Math.round(ai_meta.confidence * 100) : 100;
+            typeTag = <Tag icon={<RobotOutlined />} color="blue">AI ({confidence}%)</Tag>;
+        } else {
+            typeTag = <Tag icon={<UserOutlined />} color="purple">人工修订</Tag>;
+        }
+
+        let statusTag;
+        if (is_verified) {
+            statusTag = <Tag icon={<CheckCircleOutlined />} color="success">已确认</Tag>;
+        } else {
+            statusTag = <Tag icon={<EditOutlined />} color="warning">待确认</Tag>;
+        }
+
+        const timeDisplay = modified_at ? dayjs(modified_at).format('YYYY-MM-DD HH:mm:ss') : 'N/A';
+
+        return (
+            <div className="inspector-header">
+                <div className="inspector-title">
+                    <span>{track.name}</span>
+                    <Tooltip title={`最后修改: ${modified_at || '未修改'}`}>
+                        <span style={{ fontSize: '12px', fontWeight: 'normal', color: 'var(--insp-text-secondary)' }}>
+                            <ClockCircleOutlined /> {timeDisplay}
+                        </span>
+                    </Tooltip>
+                </div>
+                <div className="inspector-status-bar">
+                    {typeTag}
+                    {statusTag}
+                </div>
+            </div>
+        );
     };
 
     const renderSpecificInspector = () => {
-        const props = { data: action.data, onChange: onFormChange };
+        const props = { data: action.data, onChange: handleFieldChange };
         switch (track.id) {
             case 'scenes': return <SceneInspector {...props} />;
             case 'highlights': return <HighlightInspector {...props} />;
@@ -114,20 +147,36 @@ const Inspector = ({ action, track, onUpdate, onDelete }) => {
         }
     };
 
-    return (
-        <div className="inspector-form bg-white border-l border-gray-200">
-            {/* Header */}
-            <div className="inspector-header">
-                <div className="inspector-title">
-                    <span>{track.name} 详情</span>
-                    {/* [修改] 渲染动态状态标签 */}
-                    {renderStatusTag()}
-                </div>
-            </div>
+    const getActionButtonProps = () => {
+        const { is_verified, origin } = action.data;
+        const isAi = isAiOrigin(origin);
 
-            {/* Body */}
-            <div className="inspector-body custom-scrollbar">
-                {/* 1. Time Controls */}
+        if (is_verified) {
+            return {
+                text: isAi ? "审订通过" : "已暂存",
+                icon: <CheckCircleOutlined />,
+                type: "default",
+                className: "text-green-600 border-green-600 font-semibold"
+            };
+        } else {
+            return {
+                text: isAi ? "确认审订" : "暂存修改",
+                icon: isAi ? <AuditOutlined /> : <SaveOutlined />,
+                type: "primary",
+                className: ""
+            };
+        }
+    };
+
+    const btnProps = getActionButtonProps();
+
+    return (
+        <div className="inspector-form border-l border-gray-200">
+            {/* 1. Header */}
+            {renderInspectorHeader()}
+
+            {/* 2. Scrollable Body */}
+            <div className="inspector-body custom-scrollbar flex-1 overflow-y-auto">
                 <div className="form-row">
                     <div className="form-group">
                         <label className="form-label">开始 (s)</label>
@@ -151,25 +200,32 @@ const Inspector = ({ action, track, onUpdate, onDelete }) => {
                     </div>
                 </div>
 
-                {/* 2. Specific Form */}
+                <Divider style={{ margin: '24px 0', borderColor: '#e2e8f0' }} />
+
                 {renderSpecificInspector()}
             </div>
 
-            {/* Footer */}
-            <div className="inspector-footer">
-                <div className="flex gap-2">
-                    {/* [新增] 快速确认按钮 (如果只是想确认AI是对的，不改内容) */}
-                    {!action.data.is_verified && (
-                        <Button
-                            block
-                            icon={<CheckCircleOutlined />}
-                            onClick={() => handleDataUpdate({}, true)}
-                            style={{ color: '#10b981', borderColor: '#10b981' }}
-                        >
-                            确认无误
-                        </Button>
-                    )}
-                    <Button danger block icon={<DeleteOutlined />} onClick={() => onDelete(action.id)}>
+            {/* 3. Footer Action Area */}
+            <div className="inspector-footer border-t border-gray-200">
+                <div className="flex gap-3">
+                    <Button
+                        type={btnProps.type}
+                        block
+                        icon={btnProps.icon}
+                        onClick={handleLocalStage}
+                        className={btnProps.className}
+                    >
+                        {btnProps.text}
+                    </Button>
+
+                    {/* 修改后的删除按钮：结构一致，样式分离 */}
+                    <Button
+                        danger
+                        block
+                        icon={<DeleteOutlined />}
+                        onClick={() => onDelete(action.id)}
+                        className="inspector-btn-delete"
+                    >
                         删除
                     </Button>
                 </div>

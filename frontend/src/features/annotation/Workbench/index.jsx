@@ -5,7 +5,6 @@ import _ from 'lodash';
 import VideoPlayer from './components/VideoPlayer';
 import SimpleTimeline from './components/SimpleTimeline';
 import Inspector from './components/Inspector';
-import { parseSRT } from './utils/parsers';
 import { transformToTracks, transformFromTracks } from './utils/adapter';
 import { generateVTT } from './utils/vtt';
 // [核心修复] 重新引入配置定义
@@ -355,49 +354,61 @@ const AnnotationWorkbench = () => {
     return (
         <div className="wb-container">
             <header className="wb-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {/* 左侧：返回与标题 */}
+                <div className="wb-header-left">
                     <Button
                         icon={<ArrowLeftOutlined />}
                         type="text"
-                        onClick={handleGoBack}
+                        onClick={handleGoBack} // 假设逻辑代码里有这个
                         title="返回项目列表"
                     />
                     <div>
                         <Title level={4} style={{ margin: 0 }}>Annotation Workbench</Title>
-                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>v4.1 (Config Driven + CC)</span>
+                        <span className="wb-version-tag">v1.3.0</span>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f3f4f6', padding: '4px 16px', borderRadius: '99px' }}>
+                {/* 中间：播放控制 */}
+                <div className="wb-player-controls">
+                    <div className="wb-control-group">
                         <Button
                             type="text"
                             shape="circle"
                             icon={playing ? <PauseCircleOutlined style={{ fontSize: 24, color: '#9333ea' }}/> : <PlayCircleOutlined style={{ fontSize: 24 }}/>}
-                            onClick={togglePlay}
+                            onClick={togglePlay} // 假设逻辑代码里有这个
                         />
 
-                        {/* CC 字幕开关 */}
                         <AntTooltip title={showSubtitle ? "隐藏原片字幕" : "显示原片字幕 (CC)"}>
                             <Button
                                 type={showSubtitle ? "primary" : "text"}
                                 shape="circle"
                                 size="small"
                                 icon={<FileTextOutlined style={{ fontSize: 16 }} />}
-                                onClick={() => setShowSubtitle(!showSubtitle)}
+                                onClick={() => setShowSubtitle(!showSubtitle)} // 假设逻辑代码里有这个
                                 style={showSubtitle ? { backgroundColor: '#9333ea' } : { color: '#6b7280' }}
                             />
                         </AntTooltip>
 
-                        <span style={{ fontFamily: 'monospace', color: '#4b5563', width: '100px', textAlign: 'center', borderLeft: '1px solid #e5e7eb', paddingLeft: '8px' }}>
-                        {currentTime.toFixed(2)}s
-                    </span>
+                        <span className="wb-time-display">
+                            {currentTime.toFixed(2)}s
+                        </span>
                     </div>
                 </div>
 
-                <Space>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
-                        保存
+                {/* 右侧：保存提交 */}
+                <Space size="middle">
+                    <span className="wb-save-hint">
+                        暂存后请记得点击此处提交 👉
+                    </span>
+
+                    <Button
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={handleSave} // 假设逻辑代码里有这个
+                        loading={saving} // 假设逻辑代码里有这个
+                        title="将当前所有暂存的修改写入后端存储"
+                    >
+                        提交本次标注成果
                     </Button>
                 </Space>
             </header>
@@ -416,10 +427,11 @@ const AnnotationWorkbench = () => {
                             subtitleUrl={subtitleUrl}
                         />
                     </div>
+                    {/* 这里的 .wb-inspector-area 样式已在 CSS 中去除了多余 padding */}
                     <div className="wb-inspector-area">
                         <Inspector
-                            action={selectedContext.action}
-                            track={selectedContext.track}
+                            action={selectedContext?.action}
+                            track={selectedContext?.track}
                             onUpdate={handleActionUpdate}
                             onDelete={handleActionDelete}
                         />
@@ -428,7 +440,7 @@ const AnnotationWorkbench = () => {
 
                 <div className="wb-timeline-pane">
                     <div className="wb-timeline-toolbar">
-                        <div style={{ display: 'flex', gap: '8px', marginRight: '24px' }}>
+                        <div className="wb-toolbar-actions">
                             <AntTooltip title={!canSplit ? "此轨道不支持拆分" : "快捷键: S"}>
                                 <Button size="small" icon={<ScissorOutlined />} onClick={handleSplitClip} disabled={!selectedActionId || !canSplit}>拆分</Button>
                             </AntTooltip>
@@ -437,11 +449,11 @@ const AnnotationWorkbench = () => {
                             </AntTooltip>
                         </div>
 
-                        <span style={{ fontSize: '12px', color: '#6b7280', flex: 1 }}>
-                        操作: 轨道划词创建 | 拖拽调整 | S键拆分 | M键合并
-                    </span>
+                        <span className="wb-toolbar-hint">
+                            操作: 轨道划词创建 | 拖拽调整 | S键拆分 | M键合并
+                        </span>
 
-                        <div style={{ width: 200, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="wb-toolbar-slider">
                             <Slider min={1} max={100} value={scale} onChange={setScale} style={{ flex: 1 }} tooltip={{ formatter: (v) => `${v} px/s` }} />
                         </div>
                     </div>
@@ -459,7 +471,6 @@ const AnnotationWorkbench = () => {
                             onScaleChange={setScale}
                             videoUrl={originalMeta?.source_path}
                             onCreate={handleCreateClip}
-                            // [新增] 传递波形 URL
                             waveformUrl={originalMeta?.waveform_url}
                         />
                     </div>

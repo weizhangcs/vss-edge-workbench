@@ -11,7 +11,7 @@ const HighlightInspector = ({ data, onChange }) => {
                     value={data.type || ''}
                     onChange={(e) => {
                         onChange('type', e.target.value);
-                        // 同步 label 用于时间轴显示
+                        // 自动同步 label，方便时间轴显示
                         onChange('label', e.target.value);
                     }}
                 >

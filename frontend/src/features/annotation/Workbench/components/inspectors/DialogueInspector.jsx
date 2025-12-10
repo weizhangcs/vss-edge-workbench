@@ -1,10 +1,4 @@
 import React from 'react';
-import { Form, Input, Typography } from 'antd'; // 引入 Typography
-import { UserOutlined } from '@ant-design/icons';
-
-const { TextArea } = Input;
-// [修改] 不再解构 Text，直接用 Typography.Text 避免命名冲突风险
-// const { Text } = Typography;
 
 const DialogueInspector = ({ data, onChange }) => {
     return (
@@ -20,14 +14,32 @@ const DialogueInspector = ({ data, onChange }) => {
                 />
             </div>
 
-            {/* 原始内容展示 */}
+            {/* ASR 原始内容展示 (只读区域) */}
             {data.original_text && (
-                <div className="bg-gray-100 p-2 rounded mb-4 border border-gray-200">
-                    <div className="text-xs text-gray-500 mb-1">原始内容 / ASR识别:</div>
-                    {/* [修改] 使用 Typography.Text */}
-                    <Typography.Text type="secondary" className="text-sm font-mono break-all">
+                <div style={{
+                    backgroundColor: '#f8fafc', // 接近 var(--insp-bg-body)
+                    padding: '12px',
+                    borderRadius: 'var(--insp-input-radius)',
+                    marginBottom: '24px',
+                    border: '1px solid var(--insp-border-color)'
+                }}>
+                    <div style={{
+                        fontSize: '12px',
+                        color: 'var(--insp-text-secondary)',
+                        marginBottom: '6px',
+                        fontWeight: 600
+                    }}>
+                        原始内容 / ASR识别:
+                    </div>
+                    <div style={{
+                        fontSize: '13px',
+                        fontFamily: 'SF Mono, Menlo, monospace',
+                        color: 'var(--insp-text-primary)',
+                        lineHeight: 1.5,
+                        wordBreak: 'break-all'
+                    }}>
                         {data.original_text}
-                    </Typography.Text>
+                    </div>
                 </div>
             )}
 
