@@ -10,8 +10,9 @@
 
 # 文件路径: apps/workflow/admin.py
 
-from .annotation.admin import AnnotationJobAdmin, AnnotationProjectAdmin
-from .annotation.admin_v2 import AnnotationProjectAdminV2, AnnotationProjectV2
+from .annotation.admin import AnnotationProjectAdmin
+
+# from .annotation.admin_v2 import AnnotationProjectAdminV2, AnnotationProjectV2
 from .creative.admin import CreativeProjectAdmin
 from .delivery.admin import DeliveryJobAdmin
 from .inference.admin import InferenceProjectAdmin
@@ -20,13 +21,12 @@ from .transcoding.admin import TranscodingJobAdmin, TranscodingProjectAdmin
 # 显式声明导出列表，既满足了 Flake8 的 F401 检查，
 # 也明确了该模块作为 "Admin Registry" 的职责。
 __all__ = [
-    "AnnotationJobAdmin",
     "AnnotationProjectAdmin",
     "CreativeProjectAdmin",
     "DeliveryJobAdmin",
     "InferenceProjectAdmin",
     "TranscodingJobAdmin",
     "TranscodingProjectAdmin",
-    "AnnotationProjectV2",
-    "AnnotationProjectAdminV2",
+    # "AnnotationProject",
+    "AnnotationProjectAdmin",
 ]

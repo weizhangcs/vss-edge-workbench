@@ -1,2 +1,97 @@
 {% extends "admin/change_form.html" %}
-{% load i18n admin_urls unfold %}
+{% load i18n admin_urls static admin_modify %}
+{% block content %}
+<div id="content-main">
+    <form {% if has_file_field %}enctype="multipart/form-data" {% endif %}action="{{ form_url }}" method="post" id="{{ opts.model_name }}_form" novalidate>
+        {% csrf_token %}
+        {% block form_top %}{% endblock %}
+
+        <div>
+            {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+            {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+            {% include "admin/includes/fieldset.html" %}
+        </div>
+
+        {% if object_id %}
+        <div class="custom-tabs-container" style="margin-top: 20px;">
+            <ul class="nav nav-tabs flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                {% for tab in tabs %}
+                <li class="nav-item mr-2">
+                    <a class="nav-link inline-block py-2 px-4 text-sm font-medium text-gray-500 hover:text-gray-600 hover:border-gray-300 rounded-t-lg border-b-2 border-transparent"
+                       href="#tab-{{ tab.slug }}"
+                       data-toggle="tab"
+                       onclick="switchTab(event, 'tab-{{ tab.slug }}')"
+                       id="link-tab-{{ tab.slug }}">
+                        {{ tab.title }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+
+            <div class="tab-content">
+                {% for tab in tabs %}
+                <div id="tab-{{ tab.slug }}" class="tab-pane hidden">
+                    {% include tab.template %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% submit_row %}
+    </form>
+</div>
+
+<script>
+function switchTab(evt, tabId) {
+    if(evt) evt.preventDefault();
+
+    // 隐藏所有 Tab 内容
+    document.querySelectorAll('.tab-pane').forEach(el => {
+        el.classList.add('hidden');
+    });
+
+    // 重置所有 Tab 样式 (Unfold/Tailwind 风格)
+    document.querySelectorAll('.nav-link').forEach(el => {
+        el.classList.remove('text-primary-600', 'border-primary-600', 'active');
+        el.classList.add('text-gray-500', 'border-transparent');
+    });
+
+    // 显示当前 Tab
+    const targetPane = document.getElementById(tabId);
+    if(targetPane) targetPane.classList.remove('hidden');
+
+    // 高亮当前 Link
+    const targetLink = evt ? evt.target : document.getElementById('link-' + tabId);
+    if(targetLink) {
+        targetLink.classList.remove('text-gray-500', 'border-transparent');
+        targetLink.classList.add('text-primary-600', 'border-primary-600', 'active');
+    }
+}
+
+// 页面加载时自动处理 Hash
+document.addEventListener("DOMContentLoaded", function() {
+    const hash = window.location.hash;
+    if (hash) {
+        const tabId = hash.substring(1);
+        // 模拟切换
+        const link = document.getElementById('link-' + tabId);
+        if(link) switchTab(null, tabId);
+    } else {
+        // 默认激活第一个 (如果是 Change View)
+        {% if object_id and tabs %}
+        switchTab(null, 'tab-{{ tabs.0.slug }}');
+        {% endif %}
+    }
+});
+
+// 监听 Hash 变化
+window.addEventListener("hashchange", function() {
+    const hash = window.location.hash;
+    if (hash) {
+        const tabId = hash.substring(1);
+        switchTab(null, tabId);
+    }
+});
+</script>
+{% endblock %}

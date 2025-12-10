@@ -22,7 +22,3 @@ services:
       context: .
     volumes:
       - .:/app
-
-  subeditor:
-     build:
-       context: ..\..\WebstormProjects\vss-sub-editor

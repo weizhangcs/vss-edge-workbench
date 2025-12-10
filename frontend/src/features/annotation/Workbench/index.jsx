@@ -14,9 +14,6 @@ import './style.css';
 
 const { Title } = Typography;
 
-const TEST_VIDEO_URL = "http://localhost:9999/media/transcoding_outputs/5124d170-c299-4d58-8447-abdaac2af5aa/158.mp4";
-const TEST_SRT_URL = "http://localhost:9999/media/transcoding_outputs/5124d170-c299-4d58-8447-abdaac2af5aa/158.srt";
-
 const AnnotationWorkbench = () => {
     // --- 状态定义 ---
     const [playing, setPlaying] = useState(false);
@@ -263,9 +260,20 @@ const AnnotationWorkbench = () => {
             const payload = transformFromTracks(tracks, originalMeta);
             console.log("[Workbench] Saving Payload:", payload);
 
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            // [核心修复] 获取 CSRF Token
+            // 优先从 window.CONTEXT 获取 (我们在 workbench.html 里注入了)
+            // 如果没有，再尝试从 DOM 获取
+            const csrfToken = window.CONTEXT?.csrfToken || document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 
-            const response = await fetch(window.location.href, {
+            // [核心修复] 使用后端注入的专用 API 地址
+            // 之前的 window.location.href 会请求到 HTML 页面，导致 "Unexpected token <" 错误
+            const saveUrl = window.CONTEXT?.saveEndpoint;
+
+            if (!saveUrl) {
+                throw new Error("Save endpoint not found in window.CONTEXT");
+            }
+
+            const response = await fetch(saveUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -275,19 +283,40 @@ const AnnotationWorkbench = () => {
                 body: JSON.stringify(payload)
             });
 
+            // 检查 HTTP 状态码，防止 404/500 返回 HTML 导致的解析错误
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Server Error (${response.status}): ${text.substring(0, 100)}...`);
+            }
+
             const resData = await response.json();
 
-            if (response.ok && resData.status === 'success') {
+            if (resData.status === 'success') {
                 message.success('保存成功');
+                // 可选：更新本地 originalMeta，防止重复保存
+                setOriginalMeta(payload);
             } else {
                 message.error(`保存失败: ${resData.message || '未知错误'}`);
             }
 
         } catch (e) {
             console.error(e);
-            message.error("网络请求失败");
+            message.error(`保存请求异常: ${e.message}`);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // [新增] 处理返回逻辑
+    const handleGoBack = () => {
+        // 优先使用后端注入的精确路径
+        const returnUrl = window.CONTEXT?.returnUrl;
+
+        if (returnUrl) {
+            window.location.href = returnUrl;
+        } else {
+            // 兜底：如果没有路径，才尝试浏览器回退
+            window.history.back();
         }
     };
 
@@ -323,15 +352,16 @@ const AnnotationWorkbench = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedActionId, currentTime, tracks]);
 
-    const finalVideoUrl = (originalMeta?.source_path && !originalMeta.source_path.includes('v2_demo.mp4'))
-        ? originalMeta.source_path
-        : TEST_VIDEO_URL;
-
     return (
         <div className="wb-container">
             <header className="wb-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <Button icon={<ArrowLeftOutlined />} type="text" onClick={() => window.history.back()} />
+                    <Button
+                        icon={<ArrowLeftOutlined />}
+                        type="text"
+                        onClick={handleGoBack}
+                        title="返回项目列表"
+                    />
                     <div>
                         <Title level={4} style={{ margin: 0 }}>Annotation Workbench</Title>
                         <span style={{ fontSize: '12px', color: '#9ca3af' }}>v4.1 (Config Driven + CC)</span>
@@ -377,7 +407,7 @@ const AnnotationWorkbench = () => {
                     <div className="wb-video-area">
                         <VideoPlayer
                             ref={videoRef}
-                            url={finalVideoUrl}
+                            url={originalMeta?.source_path}
                             playing={playing}
                             onProgress={handleProgress}
                             onDuration={setDuration}
@@ -427,7 +457,7 @@ const AnnotationWorkbench = () => {
                             onSelect={(action) => setSelectedActionId(action ? action.id : null)}
                             scale={scale}
                             onScaleChange={setScale}
-                            videoUrl={finalVideoUrl}
+                            videoUrl={originalMeta?.source_path}
                             onCreate={handleCreateClip}
                             // [新增] 传递波形 URL
                             waveformUrl={originalMeta?.waveform_url}

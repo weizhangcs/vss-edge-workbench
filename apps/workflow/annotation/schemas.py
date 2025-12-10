@@ -1,172 +1,127 @@
-# apps/workflow/annotation/schemas.py
-
 from datetime import datetime
-from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+from django.db import models
+from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, Field
 
+# =============================================================================
+# 1. 核心枚举 (Core Enums) - i18n 增强版
+# =============================================================================
+
+
+class SceneMood(models.TextChoices):
+    """
+    [场景氛围]
+    Value (存储值) = "Calm"
+    Label (显示名) = "平静" (支持 i18n)
+    """
+
+    CALM = "Calm", _("平静")
+    TENSE = "Tense", _("紧张")
+    ROMANTIC = "Romantic", _("浪漫")
+    JOYFUL = "Joyful", _("喜悦")
+    SAD = "Sad", _("悲伤")
+    MYSTERIOUS = "Mysterious", _("悬疑/神秘")
+    ANGRY = "Angry", _("愤怒")
+    CONFRONTATIONAL = "Confrontational", _("冲突")
+    FEARFUL = "Fearful", _("恐惧")
+    OPPRESSIVE = "Oppressive", _("压抑")
+    EERIE = "Eerie", _("诡异")
+    WARM = "Warm", _("温馨")
+
+
+class SceneType(models.TextChoices):
+    """[场景类型]"""
+
+    DIALOGUE_HEAVY = "Dialogue_Heavy", _("对话驱动")
+    ACTION_DRIVEN = "Action_Driven", _("动作驱动")
+    INTERNAL_MONOLOGUE = "Internal_Monologue", _("内心独白")
+    VISUAL_STORYTELLING = "Visual_Storytelling", _("视觉叙事")
+    TRANSITION = "Transition", _("过场")
+    ESTABLISHING = "Establishing", _("铺垫/空镜")
+
+
+class HighlightType(models.TextChoices):
+    """[高光类型]"""
+
+    ACTION = "Action", _("动作片段")
+    EMOTIONAL = "Emotional", _("情感片段")
+    DIALOGUE = "Dialogue", _("对话片段")
+    SUSPENSE = "Suspense", _("悬念片段")
+    INFORMATION = "Information", _("信息片段")
+    HUMOR = "Humor", _("幽默片段")
+    OTHER = "Other", _("其他")
+
+
+class HighlightMood(models.TextChoices):
+    """[高光情绪]"""
+
+    EXCITING = "Exciting", _("燃")
+    SATISFYING = "Satisfying", _("爽")
+    HEART_WRENCHING = "Heart-wrenching", _("虐")
+    SWEET = "Sweet", _("甜")
+    HILARIOUS = "Hilarious", _("爆笑")
+    TERRIFYING = "Terrifying", _("恐怖")
+    HEALING = "Healing", _("治愈")
+    TOUCHING = "Touching", _("感动")
+    TENSE = "Tense", _("紧张")
+
+
+class DataOrigin(models.TextChoices):
+    """[数据来源]"""
+
+    HUMAN = "human", _("人工")
+    AI_ASR = "ai_asr", _("AI语音识别")
+    AI_LLM = "ai_llm", _("AI大模型")
+    AI_CV = "ai_cv", _("AI视觉算法")
+    AI_OCR = "ai_ocr", _("AI文字识别")
+
+
 # ==========================================
-# 1. 受控词表 (Controlled Vocabularies)
-# 基于 v2.6 文档及最新业务需求定义
+# 2. 上下文组件 (Context Components) - 保持不变
 # ==========================================
-
-
-class SceneType(str, Enum):
-    """场景内容类型"""
-
-    DIALOGUE_HEAVY = "Dialogue_Heavy"  # 对话驱动
-    ACTION_DRIVEN = "Action_Driven"  # 动作驱动
-    INTERNAL_MONOLOGUE = "Internal_Monologue"  # 内心独白
-    VISUAL_STORYTELLING = "Visual_Storytelling"  # 视觉叙事
-
-
-class SceneMood(str, Enum):
-    """场景氛围"""
-
-    ROMANTIC = "Romantic"  # 浪漫
-    WARM = "Warm"  # 温馨
-    JOYFUL = "Joyful"  # 喜悦
-    CALM = "Calm"  # 平静
-    TENSE = "Tense"  # 紧张
-    SUSPENSEFUL = "Suspenseful"  # 悬疑
-    SAD = "Sad"  # 悲伤
-    ANGRY = "Angry"  # 愤怒
-    CONFRONTATIONAL = "Confrontational"  # 冲突
-    FEARFUL = "Fearful"  # 恐惧
-    OPPRESSIVE = "Oppressive"  # 压抑
-    EERIE = "Eerie"  # 诡异
-
-
-class HighlightType(str, Enum):
-    """高光类型"""
-
-    ACTION = "Action"  # 动作片段
-    EMOTIONAL = "Emotional"  # 情感片段
-    DIALOGUE = "Dialogue"  # 对话片段
-    SUSPENSE = "Suspense"  # 悬念片段
-    INFORMATION = "Information"  # 信息片段
-    HUMOR = "Humor"  # 幽默片段
-    OTHER = "Other"  # [核心修复] 补回 "其他" 选项
-
-
-class HighlightMood(str, Enum):
-    """高光情绪 (新增)"""
-
-    EXCITING = "Exciting"  # 燃
-    SATISFYING = "Satisfying"  # 爽
-    HEART_WRENCHING = "Heart-wrenching"  # 虐
-    SWEET = "Sweet"  # 甜
-    HILARIOUS = "Hilarious"  # 爆笑
-    TERRIFYING = "Terrifying"  # 恐怖
-    HEALING = "Healing"  # 治愈
-    TOUCHING = "Touching"  # 感动
-    TENSE = "Tense"  # 紧张
-
-
-class DataOrigin(str, Enum):
-    HUMAN = "human"
-    AI_ASR = "ai_asr"
-    AI_LLM = "ai_llm"
-    AI_CV = "ai_cv"
-    AI_OCR = "ai_ocr"
-
-
-# ==========================================
-# 2. 基础组件 (Timeline Items)
-# ==========================================
-
-
-# ==========================================
-# 2. 基础组件 (Base Components)
-# ==========================================
-
-
 class AiMetadata(BaseModel):
-    """
-    [AI 元数据]
-    作为组合对象嵌入到各个 Item 中，记录推理痕迹。
-    """
-
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="AI 置信度 (0.0-1.0)")
-    reasoning: Optional[str] = Field(None, description="推理依据/思维链")
-    model_version: Optional[str] = Field(None, description="模型版本标识")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    reasoning: Optional[str] = None
+    model_version: Optional[str] = None
 
 
-class TimelineItemBase(BaseModel):
+class ItemContext(BaseModel):
     """
-    [时间轴对象基类]
-    所有轨道上的数据块都必须包含这些通用字段。
+    [原子上下文]
+    每个数据块的工程属性，与业务内容隔离。
     """
 
     id: str = Field(..., description="UUID")
-    start: float = Field(..., description="开始时间 (秒)")
-    end: float = Field(..., description="结束时间 (秒)")
-
-    # 状态与来源
-    is_verified: bool = Field(default=False, description="是否经过人工校验")
-    origin: DataOrigin = Field(default=DataOrigin.HUMAN, description="数据来源")
-
-    # AI 扩展槽 (组合模式)
+    is_verified: bool = Field(default=False)
+    origin: DataOrigin = Field(default=DataOrigin.HUMAN)
     ai_meta: Optional[AiMetadata] = None
 
 
 # ==========================================
-# 3. 业务实体 (Track Items)
+# 3. 业务实体 (Business Content) - 保持不变
 # ==========================================
+class DialogueContent(BaseModel):
+    text: str
+    speaker: str = "Unknown"
+    original_text: Optional[str] = None
 
 
-class DialogueItem(TimelineItemBase):
-    """
-    [轨道 1: 对话/台词] (SubEditor 核心产物)
-    听觉源数据。
-    """
-
-    text: str = Field(..., description="字幕文本内容")
-    speaker: str = Field(default="Unknown", description="角色名 (关联 Project.character_list)")
-    original_text: Optional[str] = Field(None, description="原文/翻译对照")
+class CaptionContent(BaseModel):
+    content: str
+    category: Optional[str] = None
 
 
-class CaptionItem(TimelineItemBase):
-    """
-    [轨道 2: 提词/花字] (OCR/人工标注)
-    视觉源数据。出现在画面上的文字信息。
-    """
-
-    content: str = Field(..., description="画面上的文字内容")
-    category: Optional[str] = Field(None, description="类别 (如: 人名介绍, 地点提示, 时间流逝)")
+class HighlightContent(BaseModel):
+    type: HighlightType = Field(default=HighlightType.OTHER)
+    mood: Optional[HighlightMood] = None
+    description: Optional[str] = None
 
 
-class HighlightItem(TimelineItemBase):
-    """
-    [轨道 3: 高光片段] (Layer 3 产物)
-    评价性数据。用于剪辑二创。
-    """
-
-    class HighlightItem(TimelineItemBase):
-        """
-        [轨道 3: 高光片段] (Layer 3 产物)
-        评价性数据。用于剪辑二创。
-        """
-
-        type: HighlightType = Field(default=HighlightType.OTHER, description="高光类型")
-
-        # [核心修复] 将 SceneMood 改为 HighlightMood
-        mood: Optional[HighlightMood] = None
-
-        description: Optional[str] = Field(None, description="高光简要描述")
-
-
-class SceneItem(TimelineItemBase):
-    """
-    [轨道 4: 叙事场景] (Layer 2 产物)
-    结构化/语义化数据。
-    """
-
-    label: str = Field(..., description="场景简短标题")
-    description: Optional[str] = Field(None, description="详细剧情描述")
-
-    # 核心语义属性 (Optional 以适应 AI 预生成的不确定性)
+class SceneContent(BaseModel):
+    label: str
+    description: Optional[str] = None
     mood: Optional[SceneMood] = None
     scene_type: Optional[SceneType] = None
     location: Optional[str] = None
@@ -175,81 +130,147 @@ class SceneItem(TimelineItemBase):
 
 
 # ==========================================
-# 4. 存储与交换模型 (Storage Models)
+# 4 轨道对象 (Track Items)
+# ==========================================
+class DialogueItem(BaseModel):
+    start: float
+    end: float
+    content: DialogueContent
+    context: ItemContext
+
+
+class CaptionItem(BaseModel):
+    start: float
+    end: float
+    content: CaptionContent
+    context: ItemContext
+
+
+class HighlightItem(BaseModel):
+    start: float
+    end: float
+    content: HighlightContent
+    context: ItemContext
+
+
+class SceneItem(BaseModel):
+    start: float
+    end: float
+    content: SceneContent
+    context: ItemContext
+
+
+# ==========================================
+# 5. 工程过程模型 (Engineering Models)
+# 生产侧：Workbench 读写 / Edge 存储
 # ==========================================
 
 
 class MediaAnnotation(BaseModel):
     """
-    [原子单元]
-    Workbench 直接加载和保存的对象。
-    对应数据库中一个 Media 的标注产出物 (通常存为 JSON 文件)。
+    [原子生产单元]
+    对应单个 Media 的全量工程文件 (l1_output_file)。
     """
 
     # 物理关联
-    media_id: str = Field(..., description="关联的 Media UUID")
-    file_name: str = Field(..., description="物理文件名 (如 ep01.mp4)")
-    source_path: str = Field(..., description="物理文件相对路径")
-    # [新增] 波形数据地址
-    waveform_url: Optional[str] = Field(None, description="预生成的波形数据(JSON)下载地址")
+    media_id: str
+    file_name: str
+    source_path: str
+    waveform_url: Optional[str] = None
 
     # 核心数据 (四条轨道)
-    scenes: List[SceneItem] = []  # 场景轨
-    dialogues: List[DialogueItem] = []  # 对话轨
-    captions: List[CaptionItem] = []  # 提词轨 (新增)
-    highlights: List[HighlightItem] = []  # 高光轨 (新增)
+    scenes: List[SceneItem] = []
+    dialogues: List[DialogueItem] = []
+    captions: List[CaptionItem] = []
+    highlights: List[HighlightItem] = []
 
     # 元数据
-    duration: float = 0.0
+    duration: float = 0.0  # 物理文件时长
     updated_at: datetime = Field(default_factory=datetime.now)
-    version: str = "1.2"
+    version: str = "2.0"  # Schema 版本
 
-    def get_clean_business_data(self) -> Dict:
+    def get_clean_business_data(self) -> Dict[str, Any]:
         """
-        [v1.2.1 架构支撑]
-        生成“净业务数据”版本 (Business Clean Version)。
-        剔除工程字段 (is_verified, origin, ai_meta, id)，
-        仅保留用于 Inference 和 RAG 的核心业务价值数据。
+        [核心方法] 提取纯净业务数据 (去除 Context)
+        供 Blueprint 生成使用
         """
-        data = self.model_dump()
 
-        # 定义需要剔除的工程字段
-        engineering_fields = {"is_verified", "origin", "ai_meta", "original_text"}
-
-        def clean_list(items):
-            cleaned = []
+        def clean_list(items: List[Any]) -> List[Dict[str, Any]]:
+            result = []
             for item in items:
-                # 剔除工程字段
-                clean_item = {k: v for k, v in item.items() if k not in engineering_fields}
-
-                # [可选] 业务规则：如果包含置信度，且置信度过低，是否要过滤？
-                # 目前策略：只过滤字段，不过滤数据行，由下游决定是否使用低置信度数据
-
-                cleaned.append(clean_item)
-            return cleaned
+                # 1. 提取时间轴
+                base = {"start": item.start, "end": item.end}
+                # 2. 提取内容 (展平)
+                # exclude_none=True 会过滤掉没填的字段
+                content_dict = item.content.model_dump(exclude_none=True)
+                result.append({**base, **content_dict})
+            return result
 
         return {
-            "media_id": data["media_id"],
-            "duration": data["duration"],
-            "scenes": clean_list(data["scenes"]),
-            "dialogues": clean_list(data["dialogues"]),
-            "captions": clean_list(data["captions"]),
-            "highlights": clean_list(data["highlights"]),
+            "scenes": clean_list(self.scenes),
+            "dialogues": clean_list(self.dialogues),
+            "captions": clean_list(self.captions),
+            "highlights": clean_list(self.highlights),
         }
 
 
-class ProjectBlueprint(BaseModel):
+class ProjectAnnotation(BaseModel):
     """
-    [聚合体]
-    整个 Project 的最终蓝图，用于 Inference 流程。
+    [项目生产集合]
+    对应整个 Project 的全量工程状态。
+    这是 Edge 内部视角的“项目全貌”。
+    """
+
+    project_id: str
+    project_name: str
+
+    # 全局角色表 (含工程状态，如是否人工确认过该角色存在)
+    character_list: List[str] = Field(default_factory=list)
+
+    # 包含所有原子单元
+    annotations: Dict[str, MediaAnnotation] = {}
+
+
+# ==========================================
+# 6. 下游消费模型 (Consumer Models)
+# 消费侧：VSS-Cloud 接收 / Inference 输入
+# ==========================================
+
+
+class Chapter(BaseModel):
+    """
+    [章节] (Consumer Unit)
+    对应 MediaAnnotation 的清洗版。
+    只包含业务内容 (start, end, content)，剔除了 context。
+    """
+
+    id: str = Field(..., description="章节ID (MediaID)")
+    name: str = Field(..., description="章节名称")
+    source_file: str = Field(..., description="关联视频路径")
+    duration: float
+
+    # 注意：这里的结构被扁平化了，直接暴露 Content 字段，或者复用 Content 对象
+    # 为了下游使用方便，通常我们会把 Content 里的字段展开，或者保留 Content 结构
+    # 这里为了保持与旧版 Blueprint 的“业务纯净度”，我们定义为：
+    scenes: List[Dict[str, Any]]  # 这里的 Dict 是清洗后的 Scene (start, end, ...content fields)
+    dialogues: List[Dict[str, Any]]
+    captions: List[Dict[str, Any]]
+    highlights: List[Dict[str, Any]]
+
+
+class Blueprint(BaseModel):
+    """
+    [蓝图] (Delivery Artifact)
+    对应 ProjectAnnotation 的清洗版。
+    最终发给 Cloud 的 JSON。
     """
 
     project_id: str
     asset_id: str
     project_name: str
 
-    # 全局上下文 (标签云来源)
+    # 纯净的角色列表
     global_character_list: List[str] = Field(default_factory=list)
 
-    # 单元集合 (Key 可以是 media_id)
-    annotations: Dict[str, MediaAnnotation] = {}
+    # 章节集合
+    chapters: Dict[str, Chapter] = {}

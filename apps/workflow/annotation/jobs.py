@@ -2,11 +2,9 @@
 
 import logging
 
-from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.db import models
 from django_fsm import transition
-from model_utils import Choices
 
 from apps.media_assets.models import Media
 
@@ -14,52 +12,43 @@ from ..common.baseJob import BaseJob
 
 logger = logging.getLogger(__name__)
 
-# 定义一个临时的存储位置，用于 .ass 文件
-# 注意: 这使用了本地文件系统存储，路径在 Docker 容器内部。
+# 定义存储位置 (保持原有的 Docker 卷映射逻辑)
 fs = FileSystemStorage(location="/app/media_root")
 
 
-def get_l1_output_upload_path(instance, filename):
+def get_annotation_upload_path(instance, filename):
     """
-    为L1产出物生成动态路径，格式:
-    annotation/<project_id>/l1_exports/<job_id>_<filename>
+    为原子工程文件生成动态路径。
+    结构: annotation/<project_id>/jobs/<job_id>_<filename>
+    例如: annotation/10/jobs/55_scene_data.json
     """
-    return f"annotation/{instance.project.id}/l1_exports/{instance.id}_{filename}"
+    return f"annotation/{instance.project.id}/jobs/{instance.id}_{filename}"
 
 
 class AnnotationJob(BaseJob):
     """
-    标注工作流的“子任务”模型。
+    (V5.1 重构版)
+    标注工作流的“原子任务”模型。
+    对应 Schemas.MediaAnnotation。
 
-    它代表了一个特定“媒体文件”在一个特定“标注项目”中的工作状态。
-    主要用作“链接模型”，存储 Media 与外部服务（如Label Studio）中 Task 的关联。
+    职责：
+    1. 维护 Media 与 Project 的多对一关系。
+    2. 存储该 Media 对应的全量工程数据 (JSON)。
+    3. 跟踪任务状态 (Pending -> Processing -> Completed)。
     """
 
-    TYPE = Choices(
-        ("L1_SUBEDITING", "第一层-字幕"),  # 用于 L1 字幕标注 (Subeditor)
-        ("L2L3_SEMANTIC", "第二三层-语义标注"),  # 用于 L2 语义标注 (Label Studio)
-    )
-
+    # --- 关联关系 ---
     project = models.ForeignKey(
-        "AnnotationProject", on_delete=models.CASCADE, related_name="jobs", verbose_name="所属标注项目", null=True, blank=True
+        "AnnotationProject", on_delete=models.CASCADE, related_name="jobs", verbose_name="所属标注项目"
     )
 
-    media = models.ForeignKey(
-        Media, on_delete=models.CASCADE, related_name="annotation_jobs", verbose_name="关联媒体文件", null=True, blank=True
-    )
+    media = models.ForeignKey(Media, on_delete=models.CASCADE, related_name="annotation_jobs", verbose_name="关联媒体文件")
 
-    job_type = models.CharField(max_length=20, choices=TYPE, verbose_name="任务类型")
-
-    # --- 外部服务 ID ---
-    label_studio_task_id = models.IntegerField(blank=True, null=True, verbose_name="Label Studio 任务ID")
-
-    # --- L1 产出物字段 ---
-    l1_output_file = models.FileField(
-        storage=fs, upload_to=get_l1_output_upload_path, blank=True, null=True, verbose_name="L1产出物 (.ass)"
-    )
-
-    l1_version_backup_file = models.FileField(
-        storage=fs, upload_to=get_l1_output_upload_path, blank=True, null=True, verbose_name="L1产出物备份"
+    # --- 核心产出物 (SSOT) ---
+    # 存储 Schemas.MediaAnnotation 的 JSON 文件
+    # 包含：Scenes, Dialogues, Captions, Highlights 及其 Context (is_verified, origin)
+    annotation_file = models.FileField(
+        storage=fs, upload_to=get_annotation_upload_path, blank=True, null=True, verbose_name="标注工程文件 (JSON)"
     )
 
     # --- 状态机转换 (继承自 BaseJob 的 'status' 字段) ---
@@ -67,8 +56,8 @@ class AnnotationJob(BaseJob):
     @transition(field="status", source=BaseJob.STATUS.PENDING, target=BaseJob.STATUS.PROCESSING)
     def start_annotation(self):
         """
-        开始标注任务 (PENDING -> PROCESSING)。
-        由 L1/L2 视图在用户点击“开始”时触发。
+        开始标注 (PENDING -> PROCESSING)
+        通常由用户在 Workbench 中首次加载或点击“开始”触发。
         """
         pass
 
@@ -83,40 +72,28 @@ class AnnotationJob(BaseJob):
     )
     def complete_annotation(self):
         """
-        完成标注任务 (PROCESSING/REVISING/ERROR -> COMPLETED)。
-        由 L1 回调视图或 L2 导出任务触发。
+        完成标注 (PROCESSING/REVISING -> COMPLETED)
+        用户点击“提交/完成”时触发，表明该文件的标注已通过人工确认。
         """
         pass
 
     @transition(field="status", source=BaseJob.STATUS.COMPLETED, target=BaseJob.STATUS.REVISING)
     def revise(self):
         """
-        (已重写)
-        开始“修订”任务 (COMPLETED -> REVISING)。
-        在状态转换前，自动备份当前的 L1 产出物文件。
+        修订任务 (COMPLETED -> REVISING)
+        当已完成的任务需要重新修改时触发。
+
+        [注]: 旧版这里有 l1_output_file 的备份逻辑。
+        在 V5.1 中，建议将"版本控制"逻辑移至 Service 层 (如 AnnotationService.save_annotation)，
+        在保存新 JSON 前自动备份旧 JSON，保持 Model 层纯净。
         """
-        # 仅在 L1 任务且产出物存在时执行备份
-        if self.job_type == self.TYPE.L1_SUBEDITING and self.l1_output_file:
-            try:
-                self.l1_output_file.open("rb")
-                content = self.l1_output_file.read()
-                self.l1_output_file.close()
-
-                file_name = self.l1_output_file.name.split("/")[-1]
-                # 保存备份文件 (save=False 因为 super().revise() 之后会调用 save())
-                self.l1_version_backup_file.save(f"backup_{file_name}", ContentFile(content), save=False)
-            except Exception as e:
-                logger.error(f"为 Job {self.id} 备份 L1 文件时出错: {e}", exc_info=True)
-                # 即使备份失败，也允许状态转换继续
-
-        super().revise()  # (调用 BaseJob 中的原始 revise 逻辑)
+        super().revise()
 
     def __str__(self):
-        if self.media:
-            return f"{self.get_job_type_display()} Job for {self.media.title} ({self.get_status_display()})"
-        return f"{self.get_job_type_display()} Job for Project {self.project.name} ({self.get_status_display()})"
+        return f"Job {self.id} | {self.media.title} ({self.get_status_display()})"
 
     class Meta:
         verbose_name = "标注任务"
         verbose_name_plural = verbose_name
-        ordering = ["-created"]
+        # 默认按媒体序列号排序，保证生成 Blueprint 时章节顺序正确
+        ordering = ["media__sequence_number", "id"]

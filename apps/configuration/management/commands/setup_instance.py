@@ -13,24 +13,15 @@ class Command(BaseCommand):
     help = "Performs one-time initialization for a new Visify Story Studio instance."
 
     def add_arguments(self, parser: CommandParser):
-        # [新增] 接受一个可选的 LS Token 参数
-        parser.add_argument(
-            "--ls-token", type=str, default=None, help="Label Studio API Token to be written to IntegrationSettings."
-        )
-
-        # [新增] Cloud API 相关参数
         parser.add_argument("--cloud-url", type=str, default=None, help="Cloud API Base URL")
         parser.add_argument("--cloud-id", type=str, default=None, help="Cloud Instance ID")
         parser.add_argument("--cloud-key", type=str, default=None, help="Cloud API Key")
 
     def handle(self, *args, **options):
-        # ls_token_arg = options["ls_token"]
         self.stdout.write(self.style.SUCCESS("🚀 Starting Visify Story Studio instance setup..."))
         self._create_django_superuser()
         self._create_default_encoding_profile()
         self._update_integration_settings(options)
-        # [核心修复] 将接收到的参数传递给方法
-        # self._set_label_studio_token(ls_token_arg)
         self.stdout.write(self.style.SUCCESS("✅✅✅ Instance setup completed successfully! ✅✅✅"))
         self.stdout.write("You can now log in using the username and password you provided.")
 
@@ -68,7 +59,6 @@ class Command(BaseCommand):
         """
         self.stdout.write("⚙️  Configuring Integration Settings...")
 
-        ls_token = options.get("ls_token")
         cloud_url = options.get("cloud_url")
         cloud_id = options.get("cloud_id")
         cloud_key = options.get("cloud_key")
@@ -79,15 +69,7 @@ class Command(BaseCommand):
 
             update_fields = []
 
-            # 2. 处理 Label Studio Token
-            if ls_token and ls_token != "Manual_Setup_Required":
-                settings_obj.label_studio_access_token = ls_token
-                update_fields.append("label_studio_access_token")
-                self.stdout.write(f"- Label Studio Token set (starts with {ls_token[:5]}...)")
-            elif ls_token == "Manual_Setup_Required":
-                self.stdout.write(self.style.WARNING("- Label Studio Token skipped (Manual setup required)."))
-
-            # 3. [新增] 处理 Cloud API 配置
+            # 2. 理 Cloud API 配置
             # 只有当参数不为空时才更新
             if cloud_url:
                 # 简单的清洗，去除末尾斜杠防止 404
@@ -143,55 +125,3 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"Created default Encoding Profile: '{name}'."))
         else:
             self.stdout.write(self.style.WARNING(f"Updated existing Encoding Profile: '{name}' to be the default."))
-
-    def _set_label_studio_token(self, ls_token: str):
-        """
-        [最终健壮性修复] 使用原子化的 get_or_create(pk=1) 模式，并添加强制 Checkpoint。
-        """
-        self.stdout.write("🔑 Setting up Label Studio API Token...")
-
-        # 1. [检查点 1] 打印 Token 状态
-        self.stdout.write(
-            self.style.NOTICE(
-                f"DEBUG: Checkpoint 1: LS_TOKEN received (first 10 chars): {ls_token[:10] if ls_token else 'None'}"
-            )
-        )
-
-        # 2. 检查占位符
-        if not ls_token or ls_token == "Manual_Setup_Required":
-            self.stdout.write(self.style.WARNING("Warning: LABEL_STUDIO_ACCESS_TOKEN 缺失或需要手动设置。跳过 LS token 写入。"))
-            return
-
-        # 3. [检查点 2] 尝试 ORM 操作
-        try:
-            self.stdout.write(self.style.NOTICE("DEBUG: Checkpoint 2: Starting atomic ORM get_or_create(pk=1)."))
-
-            # 使用 get_or_create 和 pk=1 确保实例存在
-            settings_obj, created = IntegrationSettings.objects.get_or_create(
-                pk=1, defaults={}  # 强制在主键 1 上操作  # 允许使用字段默认值
-            )
-
-            if created:
-                self.stdout.write(self.style.WARNING("DEBUG: IntegrationSettings 实例被显式创建。"))
-
-            self.stdout.write(
-                self.style.NOTICE("DEBUG: Checkpoint 3: IntegrationSettings instance successfully obtained.")
-            )
-
-            # 4. 写入并保存 Token
-            settings_obj.label_studio_access_token = ls_token
-            # 强制保存 Token，只更新这一个字段
-            settings_obj.save(update_fields=["label_studio_access_token"])
-
-            # 5. [检查点 4] 验证并打印成功
-            re_read_token = IntegrationSettings.objects.get(pk=1).label_studio_access_token
-            self.stdout.write(
-                self.style.NOTICE(
-                    f"DEBUG: Token successfully saved to DB (first 10 chars): {re_read_token[:10] if re_read_token else 'Failed'}"  # noqa: E501
-                )
-            )
-
-            self.stdout.write(self.style.SUCCESS("Successfully set Label Studio API Token in IntegrationSettings."))
-        except Exception as e:
-            # 强制记录内部异常
-            raise CommandError(f"CRASH ERROR: Fatal exception during token write: {e}")

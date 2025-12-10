@@ -1,59 +1,48 @@
-# 文件路径: apps/workflow/annotation/projects.py
+# apps/workflow/annotation/projects.py
 
-from django.db import models, transaction
+import json
+import logging
+
+from django.core.files.base import ContentFile
+from django.db import models
 
 from ..common.baseProject import BaseProject
+
+logger = logging.getLogger(__name__)
+
 
 # --- 动态路径辅助函数 ---
 
 
-def get_ls_export_upload_path(instance, filename):
-    """为Label Studio导出文件生成动态路径"""
-    return f"annotation/{instance.id}/ls_exports/{filename}"
+def get_audit_upload_path(instance, filename):
+    return f"annotation/{instance.id}/audits/{filename}"
+
+
+def get_project_export_path(instance, filename):
+    return f"annotation/{instance.id}/exports/{filename}"
 
 
 def get_blueprint_upload_path(instance, filename):
-    """为最终蓝图文件生成动态路径"""
     return f"annotation/{instance.id}/blueprints/{filename}"
-
-
-def get_cloud_output_upload_path(instance, filename):
-    """为云端推理产出物生成动态路径"""
-    return f"annotation/{instance.id}/cloud_outputs/{filename}"
-
-
-# (移除了 get_l1_output_upload_path,因为它未在此文件中使用)
 
 
 class AnnotationProject(BaseProject):
     """
-    (V4.3 架构)
+    (V5.1 Schema驱动版)
     标注工作流的核心项目模型。
-
-    它继承了 BaseProject (name, description, asset 等)，
-    并扩展了特定的状态和产出物字段，用于协调 L1, L2, 和 L3(本地) 的工作流。
+    作为单一事实来源 (SSOT) 的聚合中心，负责协调从原子 Job 到项目级产出物的流转。
     """
 
-    # --- 状态 (覆盖 BaseProject) ---
-    # 我们覆盖 BaseProject 的 'status' 字段，以提供更详细、
-    # 专属于此工作流的状态。
     STATUS_CHOICES = (
         ("PENDING", "待处理"),
         ("PROCESSING", "处理中"),
         ("COMPLETED", "已完成"),
         ("FAILED", "失败"),
-        # --- (以下是新增的特定后台任务状态) ---
-        ("L1_AUDIT_PROCESSING", "L1 审计中"),
-        ("L2_EXPORTING", "L2 导出中"),
-        ("L3_BLUEPRINT_PROCESSING", "L3 蓝图生成中"),
-        ("L3_METRICS_PROCESSING", "L3 矩阵计算中"),
     )
 
-    status = models.CharField(
-        max_length=30, choices=STATUS_CHOICES, default="PENDING", verbose_name="项目状态"  # 增加了长度以适应新状态
-    )
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="PENDING", verbose_name="项目状态")
 
-    # --- L2 标注配置 ---
+    # --- 配置 ---
     source_encoding_profile = models.ForeignKey(
         "configuration.EncodingProfile",
         on_delete=models.PROTECT,
@@ -63,80 +52,146 @@ class AnnotationProject(BaseProject):
         help_text="选择一个编码配置。标注工具将使用此配置转码后的视频，以加快加载速度。",
     )
 
-    label_studio_project_id = models.IntegerField(blank=True, null=True, verbose_name="Label Studio 项目ID")
-    label_studio_export_file = models.FileField(
-        upload_to=get_ls_export_upload_path, blank=True, null=True, verbose_name="Label Studio 导出文件"
+    # =========================================================================
+    # 三大核心生成物 (Artifacts)
+    # =========================================================================
+
+    # 1. 审计报告 (Data Governance)
+    # 包含了数据完整性检查、AI/人工标注比例统计、异常检测结果
+    annotation_audit_report = models.FileField(
+        upload_to=get_audit_upload_path, blank=True, null=True, verbose_name="标注审计报告 (Audit)"
     )
 
-    # --- L1 审计产出物 ---
-    character_audit_report = models.FileField(
-        upload_to="audit_reports/l1_character/", blank=True, null=True, verbose_name="角色审计报告 (摘要)"
-    )
-    character_occurrence_report = models.FileField(
-        upload_to="audit_reports/l1_character_occurrences/", blank=True, null=True, verbose_name="角色出现详情 (日志)"
+    # 2. 工程导出 (Engineering Artifact) -> 对应 Schemas.ProjectAnnotation
+    # 包含完整的上下文 (Context)、AI元数据、编辑历史等。用于项目备份、迁移或导入复现。
+    project_export_file = models.FileField(
+        upload_to=get_project_export_path, blank=True, null=True, verbose_name="工程全量导出 (ProjectAnnotation)"
     )
 
-    # --- L3 建模产出物 (本地) ---
-    blueprint_validation_report = models.JSONField(blank=True, null=True, verbose_name="叙事蓝图验证报告")
+    # 3. 生产交付 (Production Artifact) -> 对应 Schemas.Blueprint
+    # 清洗掉工程数据，仅保留业务内容 (Content)。用于下游 Inference 或前端展示。
     final_blueprint_file = models.FileField(
-        upload_to=get_blueprint_upload_path, blank=True, null=True, verbose_name="最终叙事蓝图 (JSON)"
-    )
-    local_metrics_result_file = models.FileField(
-        upload_to=get_cloud_output_upload_path, blank=True, null=True, verbose_name="角色矩阵产出 (本地)"
+        upload_to=get_blueprint_upload_path, blank=True, null=True, verbose_name="生产消费蓝图 (Blueprint)"
     )
 
-    # --- 辅助方法 ---
+    # =========================================================================
+    # 核心业务逻辑
+    # =========================================================================
 
-    def get_label_studio_project_url(self):
-        """
-        生成一个指向此项目在 Label Studio 中对应页面的公共 URL。
-        """
-        if not self.label_studio_project_id:
-            return None
-        from django.conf import settings
+    def _get_valid_jobs(self):
+        """辅助方法：获取当前项目下所有有效的标注任务"""
+        return (
+            self.jobs.filter(annotation_file__isnull=False)
+            .exclude(annotation_file="")
+            .select_related("media")
+            .order_by("media__sequence_number")
+        )
 
-        return f"{settings.LABEL_STUDIO_PUBLIC_URL}/projects/{self.label_studio_project_id}"
+    def export_project_annotation(self):
+        """
+        [聚合逻辑] 读取所有 Job 的 JSON -> 完整保留 Context -> 合并
+        """
+        from .schemas import ProjectAnnotation
+        from .services.annotation_service import AnnotationService
+
+        project_anno = ProjectAnnotation(
+            project_id=str(self.id), project_name=self.name, character_list=[], annotations={}
+        )
+
+        valid_jobs = self._get_valid_jobs()
+        for job in valid_jobs:
+            try:
+                # 获取全量数据
+                media_anno = AnnotationService.load_annotation(job)
+                project_anno.annotations[media_anno.media_id] = media_anno
+            except Exception as e:
+                logger.error(f"Project Export Error on Job {job.id}: {e}")
+
+        # 落盘
+        json_output = project_anno.model_dump_json(indent=2)
+        self.project_export_file.save(
+            f"project_export_{self.id}.json", ContentFile(json_output.encode("utf-8")), save=True
+        )
+
+        return project_anno
+
+    def generate_blueprint(self):
+        """
+        [聚合逻辑] 读取所有 Job 的 JSON -> 清洗 -> 合并
+        """
+        # 延迟导入避免循环引用
+        from .schemas import Blueprint, Chapter
+        from .services.annotation_service import AnnotationService
+
+        blueprint = Blueprint(
+            project_id=str(self.id),
+            asset_id=str(self.asset.id) if self.asset else "",
+            project_name=self.name,
+            global_character_list=[],
+            chapters={},
+        )
+
+        all_characters = set()
+        valid_jobs = self._get_valid_jobs()
+
+        for job in valid_jobs:
+            try:
+                # 复用 Service 的加载逻辑 (处理文件读取/冷启动)
+                # 这样即使某个 Job 还没被点开过，也能导出初始状态
+                media_anno = AnnotationService.load_annotation(job)
+
+                # [核心步骤] 清洗数据
+                clean_data = media_anno.get_clean_business_data()
+
+                # 转换为 Chapter
+                chapter = Chapter(
+                    id=str(media_anno.media_id),
+                    name=media_anno.file_name,
+                    source_file=media_anno.source_path,
+                    duration=media_anno.duration,
+                    **clean_data,  # 传入 scenes, dialogues 等
+                )
+
+                blueprint.chapters[chapter.id] = chapter
+
+                # 收集角色
+                for d in clean_data.get("dialogues", []):
+                    spk = d.get("speaker")
+                    if spk and spk != "Unknown":
+                        all_characters.add(spk)
+
+            except Exception as e:
+                logger.error(f"Blueprint Aggregation Error on Job {job.id}: {e}")
+                continue
+
+        blueprint.global_character_list = sorted(list(all_characters))
+
+        # 落盘
+        json_output = blueprint.model_dump_json(indent=2, exclude_none=True)
+        self.final_blueprint_file.save(f"blueprint_{self.id}.json", ContentFile(json_output.encode("utf-8")), save=True)
+
+        return blueprint
+
+    def run_audit(self):
+        """
+        [能力 3: 生成审计报告]
+        统计 AI 占比、人工修订率、空值检查等
+        """
+        report = {
+            "project_id": self.id,
+            "total_jobs": self.jobs.count(),
+            "stats": {"total_scenes": 0, "human_verified_ratio": 0.0, "ai_generated_ratio": 0.0},
+            "warnings": [],
+        }
+
+        # ... (具体的统计逻辑遍历 jobs 即可实现) ...
+
+        json_output = json.dumps(report, indent=2, ensure_ascii=False)
+        self.annotation_audit_report.save(f"audit_{self.id}.json", ContentFile(json_output), save=True)
 
     def save(self, *args, **kwargs):
-        """
-        重写 save 方法。
-        在首次创建 AnnotationProject 时 (is_new=True)，
-        自动触发一个后台任务来创建 Label Studio 项目和 AnnotationJob 记录。
-        """
-        from .tasks import create_label_studio_project_task
-
-        # 1. 检查是否是新建记录 (必须在 super().save() 之前判断)
-        is_new = self._state.adding
-
-        # 2. 执行保存 (此时数据已写入事务，但尚未提交)
         super().save(*args, **kwargs)
-
-        # 3. 事务提交后触发任务
-        if is_new:
-            # [核心修正] 使用 transaction.on_commit
-            # 只有当当前的数据库事务成功 Commit 后，这个 lambda 才会执行。
-            # 这确保了当 Celery Worker 收到任务去查询数据库时，数据一定已经存在了。
-            transaction.on_commit(lambda: create_label_studio_project_task.delay(project_id=str(self.id)))
 
     class Meta:
         verbose_name = "标注项目"
         verbose_name_plural = "标注项目"
-
-
-# apps/workflow/models.py
-
-# ... (原有的 AnnotationProject 定义)
-
-
-class AnnotationProjectV2(AnnotationProject):
-    """
-    [重构过渡] AnnotationProject 的代理模型。
-    用于绑定 admin_v2.py，实现新老 Admin 的物理隔离并行开发。
-    不生成新数据库表，数据与原模型完全共享。
-    """
-
-    class Meta:
-        proxy = True
-        verbose_name = "标注项目 (V2 重构版)"
-        verbose_name_plural = "标注项目 (V2 重构版)"
-        app_label = "workflow"  # 确保在正确的 app 下
