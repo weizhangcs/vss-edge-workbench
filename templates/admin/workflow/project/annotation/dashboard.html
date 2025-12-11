@@ -1,0 +1,20 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls static %}
+
+{# 覆写 block，移除原本繁杂的 Django Admin Fieldsets #}
+{% block content %}
+<div id="content-main">
+    {# 1. 数据注入: 将 Python 字典转为全局 JSON 对象 #}
+    <script>
+        window.SERVER_CONTEXT = {{ server_data_json|safe }};
+    </script>
+
+    {# 2. React 挂载点 #}
+    {# 前端 React 代码将渲染到这里，包含 Dashboard 概览、审计按钮、Job 历史列表 #}
+    <div id="react-root-annotation" class="mt-6 bg-white min-h-[400px]"></div>
+
+    {# 3. 引用 JS #}
+    {# 注意: 你需要创建对应的 JS 包，或者暂时复用 inference 的调试 #}
+    <script type="module" src="{% static 'js/bundles/annotation-dashboard.js' %}"></script>
+</div>
+{% endblock %}

@@ -2,16 +2,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AppProvider } from '@/shared/theme';
-import ImportProject from '../features/annotation/ImportProject';
+import ImportWizard from '../features/annotation/ImportWizard';
 
 const context = window.SERVER_CONTEXT || { assets: [], urls: {} };
 
-const rootNode = document.getElementById('react-root');
+const rootNode = document.getElementById('react-root-import-wizard');
 if (rootNode) {
     const root = ReactDOM.createRoot(rootNode);
     root.render(
         <AppProvider>
-            <ImportProject context={context} />
+            <ImportWizard context={context} />
         </AppProvider>
     );
 }

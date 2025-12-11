@@ -5,7 +5,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -15,6 +15,7 @@ from apps.workflow.transcoding.jobs import TranscodingJob
 from .jobs import AnnotationJob
 from .projects import AnnotationProject
 from .services.annotation_service import AnnotationService
+from .services.import_service import ProjectImportService
 
 logger = logging.getLogger(__name__)
 
@@ -120,3 +121,56 @@ def trigger_audit(request, project_id):
     report = project.run_audit()
 
     return JsonResponse(report)
+
+
+def export_project_view(request, project_id):
+    """
+    [API] 导出工程文件
+    直接下载当前最新的 project_export_file
+    """
+    project = get_object_or_404(AnnotationProject, id=project_id)
+
+    # 确保文件存在，如果不存在则现场生成
+    if not project.project_export_file:
+        try:
+            project.export_project_annotation()
+        except Exception as e:
+            return HttpResponse(f"导出失败: {str(e)}", status=500)
+
+    # 返回文件流
+    if project.project_export_file:
+        response = HttpResponse(project.project_export_file, content_type="application/json")
+        response[
+            "Content-Disposition"
+        ] = f'attachment; filename="{project.project_export_file.name.split("/")[-1]}"'  # noqa: E702
+        return response
+
+    return HttpResponse("导出文件未生成", status=404)
+
+
+def handle_import_project(request):
+    if request.method != "POST":
+        return JsonResponse({"success": False, "message": "Method not allowed"}, status=405)
+
+    try:
+        # 获取参数
+        zip_file = request.FILES.get("import_file")
+        asset_id = request.POST.get("asset_id")
+        project_name = request.POST.get("name")
+
+        if not zip_file or not asset_id:
+            return JsonResponse({"success": False, "message": "缺少文件或资产ID"}, status=400)
+
+        # 调用 Service
+        new_project = ProjectImportService.execute_import(
+            json_file=zip_file, target_asset_id=asset_id, project_name_override=project_name
+        )
+
+        # 返回跳转 URL
+        redirect_url = reverse("admin:workflow_annotationproject_change", args=[new_project.id])
+        return JsonResponse({"success": True, "redirect_url": redirect_url})
+
+    except ValueError as e:
+        return JsonResponse({"success": False, "message": str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({"success": False, "message": f"系统错误: {str(e)}"}, status=500)

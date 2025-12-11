@@ -15,9 +15,8 @@ export default defineConfig({
             input: {
                 // 建议：Key 命名带上模块前缀，清晰明了
                 'media-batch-upload': path.resolve(__dirname, 'src/entries/media_batch_upload.jsx'),
-                'annotation-import': path.resolve(__dirname, 'src/entries/annotation_import.jsx'),
-                'annotation-character': path.resolve(__dirname, 'src/entries/annotation_character.jsx'),
-                'annotation-scene': path.resolve(__dirname, 'src/entries/annotation_scene.jsx'),
+                'annotation-import-wizard': path.resolve(__dirname, 'src/entries/annotation_import_wizard.jsx'),
+                'annotation-dashboard': path.resolve(__dirname, 'src/entries/annotation_dashboard.jsx'),
                 'creative-director': path.resolve(__dirname, 'src/entries/creative_director.jsx'),
                 'inference-facts': path.resolve(__dirname, 'src/entries/inference_facts.jsx'),
                 'inference-rag': path.resolve(__dirname, 'src/entries/inference_rag.jsx'),

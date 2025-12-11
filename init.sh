@@ -191,7 +191,6 @@ if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
     exit 1
 fi
 
-
 echo "3. 执行数据库迁移 (Migrate)..."
 if ! docker compose -p $PROJECT_NAME $COMPOSE_FILES exec $WEB_SERVICE python manage.py migrate --noinput > "$COLLECTSTATIC_LOG_FILE" 2>&1; then
     echo "❌ 错误: 数据库迁移失败！"

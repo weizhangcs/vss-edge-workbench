@@ -44,6 +44,18 @@ const SceneInspector = ({ data, onChange }) => {
             </div>
 
             <div className="form-group">
+                <label className="form-label">场景地点 (Location)</label>
+                <input
+                    type="text"
+                    className="form-input"
+                    placeholder="例如：咖啡馆、雨中街角、秘密基地..."
+                    // 绑定到 Schema 字段 location
+                    value={data.location || ''}
+                    onChange={(e) => onChange('location', e.target.value)}
+                />
+            </div>
+
+            <div className="form-group">
                 <label className="form-label">剧情描述</label>
                 <textarea
                     className="form-textarea"

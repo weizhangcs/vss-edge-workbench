@@ -1,0 +1,17 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{# 覆写 content block，移除原生的 Form 渲染，替换为 React 挂载点 #}
+{% block content %}
+<div id="content-main" class="w-full">
+    <script>
+        window.SERVER_CONTEXT = {{ server_data_json|safe }};
+    </script>
+
+    {# React 挂载点 #}
+    <div id="react-root-import-wizard"></div>
+
+    {# 引用 JS Bundle #}
+    <script type="module" src="{% static 'js/bundles/annotation-import-wizard.js' %}"></script>
+</div>
+{% endblock %}
